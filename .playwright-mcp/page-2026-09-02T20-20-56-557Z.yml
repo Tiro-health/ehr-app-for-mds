@@ -1,0 +1,19 @@
+- generic [ref=e3]:
+    - banner [ref=e4]:
+        - navigation [ref=e5]:
+            - link "My clinical app" [ref=e6] [cursor=pointer]:
+                - /url: /ehr-app-for-mds/
+            - link "Home" [ref=e8] [cursor=pointer]:
+                - /url: /ehr-app-for-mds/
+    - main [ref=e9]:
+        - generic [ref=e10]:
+            - generic [ref=e11]:
+                - heading "My clinical app" [level=1] [ref=e12]
+                - paragraph [ref=e13]: A tool built by a clinician, for clinicians.
+            - generic [ref=e14]:
+                - generic [ref=e15]:
+                    - generic [ref=e16]: Your app is running
+                    - generic [ref=e17]: This is the example page. Ask Claude Code to replace it with your first tool.
+                - generic [ref=e18]:
+                    - button "Click me" [ref=e19]
+                    - generic [ref=e20]: Clicked 0 times

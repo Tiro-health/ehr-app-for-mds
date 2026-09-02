@@ -5,7 +5,23 @@ import '@/styles.css'
 
 export const Route = createRootRoute({
   component: RootLayout,
+  notFoundComponent: NotFound,
 })
+
+function NotFound() {
+  return (
+    <div className="space-y-2">
+      <h1 className="text-2xl font-semibold">Page not found</h1>
+      <p className="text-muted-foreground">
+        This address does not exist in {appConfig.name}.{' '}
+        <Link to="/" className="underline">
+          Go to the home page
+        </Link>
+        .
+      </p>
+    </div>
+  )
+}
 
 function RootLayout() {
   return (
