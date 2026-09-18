@@ -22,8 +22,8 @@ registries: if you can describe it, you can build it.
    /onboarding
    ```
 
-Claude will ask what you want to build, set the app up, and request a web address for it on
-tirohealth.app. Your app goes online as soon as Tiro approves that address.
+Claude will ask what you want to build, set the app up, and publish it. The first time, you
+register the app in Tiro's app manager to give it a web address on tirohealth.app.
 
 ## After that
 
