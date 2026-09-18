@@ -21,7 +21,7 @@ clinical tools with Claude Code. The person you are working with is a medical do
 ## Skills
 
 - `/onboarding` is the entry point for a fresh repo. It settles what the app is and publishes it.
-- `/publish` gets the app live on GitHub Pages and reports the URL.
+- `/publish` gets the app live at `https://<app>.tirohealth.app` and reports the URL.
 
 ## Stack (do not change)
 
@@ -34,7 +34,7 @@ clinical tools with Claude Code. The person you are working with is a medical do
 | UI components | shadcn/ui on Base UI, in `src/components/ui/`       |
 | Icons         | lucide-react                                        |
 | Tests         | Vitest + Testing Library                            |
-| Hosting       | GitHub Pages via `.github/workflows/deploy.yml`     |
+| Hosting       | tirohealth.app via `.github/workflows/deploy.yml`   |
 
 There is no backend. Everything runs in the browser.
 
@@ -63,7 +63,7 @@ src/
 - **Tests**: every page gets a small test next to it that renders it and checks the heading.
   Clinical calculations get unit tests with the reference values from the source publication.
 - **Formatting and lint**: `pnpm format` fixes, `pnpm check` verifies (types, lint, format, tests).
-- **Deploy**: pushing to `main` deploys. The base path is set by the workflow, never hardcode it.
+- **Deploy**: pushing to `main` deploys, once the app's name is registered (see `/publish`).
 - **No new dependencies** unless they replace real complexity. Prefer plain code.
 
 ## Commands

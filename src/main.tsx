@@ -5,8 +5,6 @@ import { routeTree } from './routeTree.gen'
 
 const router = createRouter({
   routeTree,
-  // Matches Vite's base so the app works when served from /<repo-name>/ on GitHub Pages.
-  basepath: import.meta.env.BASE_URL,
   defaultPreload: 'intent',
   scrollRestoration: true,
 })
