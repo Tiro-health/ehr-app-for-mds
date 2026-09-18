@@ -19,8 +19,8 @@ Run these and fix what is missing before involving the clinician:
   in one sentence that you are installing a tool the app needs.
 - `pnpm install` if `node_modules/` is absent.
 - `git remote -v` to learn the GitHub owner and repository name. Note them for the publish step.
-- `gh auth status`. If `gh` is missing or not logged in, that is fine for now: publishing needs it
-  only if Pages does not enable itself.
+- `gh auth status`. Publishing needs `gh`. If it is missing or not logged in, install it and run
+  `gh auth login` with the clinician, explaining in one sentence that it lets you publish for them.
 
 If `src/app.config.ts` already has a name other than "My clinical app", this repo has been
 onboarded before. Say so, ask whether they want to change the app or add something to it, and
@@ -60,8 +60,9 @@ anonymous data.
 ## 5. Commit and publish
 
 - Commit with a message like `Set up <app name>`.
-- Invoke the `publish` skill. Report the public URL at the end and explain that every future
-  change gets published the same way when you push it.
+- Invoke the `publish` skill. The first time, the clinician registers the app in Tiro's app
+  manager to get its web address. Explain that after that every change gets published the same
+  way when you push it.
 
 ## 6. Close
 

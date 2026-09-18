@@ -12,7 +12,7 @@ registries: if you can describe it, you can build it.
 ## Get started
 
 1. [**Create your repository from this template**](https://github.com/new?template_owner=Tiro-health&template_name=ehr-app-for-mds&owner=%40me&name=my-clinical-app&description=My+clinical+tool%2C+built+with+Claude+Code&visibility=public).
-   Change the name if you like: it becomes part of your app's web address.
+   Change the name if you like.
 2. Open your new repository in Claude Code.
    - Web: go to [claude.ai/code](https://claude.ai/code), connect GitHub, pick the repository.
    - Desktop or terminal: clone the repository and open Claude Code inside it.
@@ -22,8 +22,8 @@ registries: if you can describe it, you can build it.
    /onboarding
    ```
 
-Claude will ask what you want to build, set the app up, and publish it. You get a public web
-address for your app in the first session.
+Claude will ask what you want to build, set the app up, and publish it. The first time, you
+register the app in Tiro's app manager to give it a web address on tirohealth.app.
 
 ## After that
 
