@@ -8,7 +8,7 @@ description: Publish the app to its own web address on tirohealth.app and report
 The app is published at `https://<app>.tirohealth.app`, where `<app>` is the name Tiro approved
 it under. Publishing is done by **Tiro Deploy**, a GitHub App installed on this repository: on
 every push to `main` it checks the app is approved, builds it and puts it online. It reports the
-result as a check called **Tiro Deploy (production)** on the pushed commit.
+result as a check called **Tiro.health Deploy (production)** on the pushed commit.
 
 Everything here needs `gh`, logged in (`gh auth status`). If it is missing, install it and run
 `gh auth login` with the clinician, explaining in one sentence that it lets you publish for them.
