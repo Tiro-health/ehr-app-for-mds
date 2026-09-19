@@ -64,7 +64,8 @@ src/
   Clinical calculations get unit tests with the reference values from the source publication.
 - **Formatting and lint**: `pnpm format` fixes, `pnpm check` verifies (types, lint, format, tests).
 - **Deploy**: pushing to `main` deploys, once Tiro Deploy is installed and Tiro approved the app
-  (see `/publish`). `.github/workflows/check.yml` only runs `pnpm check`.
+  (see `/publish`). `.github/workflows/build.yml` runs `pnpm check` and `pnpm build` through
+  Tiro's shared workflow; both must pass before anything is deployed. Do not change it.
 - **No new dependencies** unless they replace real complexity. Prefer plain code.
 
 ## Commands
