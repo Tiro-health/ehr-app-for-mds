@@ -1,16 +1,16 @@
-# Checks the app on every push to main and publishes it to https://<app>.tirohealth.app.
-# Publishing starts once the repository variable TIRO_APP holds the app's registered name
-# (see the publish skill). Until then only the check runs.
-name: Deploy
+# Checks the app (types, lint, format, tests) on every push to main and on pull requests.
+# Publishing is not done here: the Tiro Deploy GitHub App builds and deploys each push to
+# main to https://<app>.tirohealth.app (see the publish skill).
+name: Check
 
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   check:
@@ -25,10 +25,3 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-
-  deploy:
-    needs: check
-    if: vars.TIRO_APP != ''
-    uses: Tiro-health/ehr-app-deploy/.github/workflows/deploy.yml@v1
-    with:
-      app: ${{ vars.TIRO_APP }}
