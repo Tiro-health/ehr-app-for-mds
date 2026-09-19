@@ -24,7 +24,7 @@ Run these and fix what is missing before involving the clinician:
 
 If `src/app.config.ts` already has a name other than "My clinical app", this repo has been
 onboarded before. Say so, ask whether they want to change the app or add something to it, and
-continue from step 4.
+continue from step 5.
 
 ## 2. Learn what they want to build
 
@@ -38,14 +38,37 @@ Ask, in this order, one message each:
 
 Do not ask about colours, fonts or layout. Pick calm, clinical defaults. They can change them later.
 
-## 3. Patient data, said once
+## 3. Get the web address started
+
+Two things only the clinician can do are needed before the app can go online: installing Tiro's
+publishing app on the repository, and Tiro approving the app's web address. Approval is done by
+hand and takes time, so start both now and let them run while you build.
+
+1. **Install Tiro Deploy.** Explain in one sentence that it is the app that puts their tool
+   online. Ask them to open https://github.com/apps/tiro-health-deploy/installations/new, choose
+   the account that owns this repository, pick **Only select repositories**, select this
+   repository and click **Install**. Wait until they confirm; you cannot check it for them.
+2. **Choose the web address.** Propose `https://<name>.tirohealth.app`, with `<name>` taken from
+   the app's name: 3 to 20 characters, lowercase letters, digits and hyphens, starting with a
+   letter and not ending with a hyphen. Let them change it.
+3. **Ask Tiro for it.** Get the repository id with `gh api repos/<owner>/<repo> --jq .id` and
+   give the clinician this message to send to their contact at Tiro, filled in:
+
+   > Please approve my app for tirohealth.app.
+   > Repository: `<owner>/<repo>` (id `<id>`)
+   > Requested address: `https://<name>.tirohealth.app`
+
+   Tell them that once Tiro approves it, publishing puts the app online at that address, and
+   that you can keep building in the meantime.
+
+## 4. Patient data, said once
 
 If the tool will record anything about real patients, say this once, in your own words, briefly:
 the app stores data only in the browser on this device, nothing leaves it, and clearing the browser
 loses it. Ask if that is acceptable for a first version. If not, suggest starting with example or
 anonymous data.
 
-## 4. Set the app up
+## 5. Set the app up
 
 - Put the name and a one-line tagline in `src/app.config.ts` and the `<title>` in `index.html`.
 - Build the first version of the tool as a page under `src/pages/` with a route in `src/routes/`,
@@ -57,13 +80,13 @@ anonymous data.
 - Start `pnpm dev` and tell the clinician to open http://localhost:3000 if they are running
   locally. Ask for one round of feedback and apply it.
 
-## 5. Commit and publish
+## 6. Commit and publish
 
 - Commit with a message like `Set up <app name>`.
-- Invoke the `publish` skill. The first time, the clinician installs the Tiro Deploy app on
-  the repository and Tiro approves the app, which gives it its web address. Explain that after that every change gets published the same
-  way when you push it.
+- Invoke the `publish` skill. If Tiro has not approved the web address yet, the app goes online
+  on the first publish after approval; say so rather than treating it as an error. Explain that
+  after that, every change gets published the same way when you push it.
 
-## 6. Close
+## 7. Close
 
 Finish with three example requests they could make next, tailored to their tool. Nothing else.

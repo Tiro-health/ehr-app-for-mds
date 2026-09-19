@@ -43,10 +43,10 @@ way while you wait. Follow the workflow with `gh run watch` on the latest `build
   installed on this repository. Ask the clinician to open https://github.com/apps/tiro-health-deploy/installations/new,
   choose their account, pick **Only select repositories**, select this repository and install.
   Then publish again with an empty commit: `git commit --allow-empty -m "Publish"` and push.
-- **"This repository is not registered"**: Tiro has not approved the app yet. Tell the clinician
-  in one or two sentences that Tiro approves each app by hand and gives it its web address, and
-  that they should send Tiro their repository name (`<owner>/<repo>`) and the name they would
-  like for the address. Once approved, publish again as above.
+- **"This repository is not registered"**: Tiro has not approved the app yet. If the clinician
+  already asked Tiro during onboarding, tell them it is waiting for that approval and that you
+  will publish again once they hear back. Otherwise, give them the approval request from step 3
+  of the `onboarding` skill to send. Once approved, publish again with an empty commit as above.
 - **"… is suspended"**: Tiro has paused the app. Tell the clinician to contact Tiro.
 - **"No image to deploy"**: `.github/workflows/build.yml` was changed. Restore it to call Tiro's
   shared workflow unchanged, commit, push again.
