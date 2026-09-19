@@ -51,15 +51,38 @@ hand and takes time, so start both now and let them run while you build.
 2. **Choose the web address.** Propose `https://<name>.tirohealth.app`, with `<name>` taken from
    the app's name: 3 to 20 characters, lowercase letters, digits and hyphens, starting with a
    letter and not ending with a hyphen. Let them change it.
-3. **Ask Tiro for it.** Get the repository id with `gh api repos/<owner>/<repo> --jq .id` and
-   give the clinician this message to send to their contact at Tiro, filled in:
+3. **Ask Tiro for it.** Tell the clinician you are filing the request, and that it is public, so
+   it contains nothing about patients. Get the repository id with
+   `gh api repos/<owner>/<repo> --jq .id` and open the request on Tiro's side:
 
-   > Please approve my app for tirohealth.app.
-   > Repository: `<owner>/<repo>` (id `<id>`)
-   > Requested address: `https://<name>.tirohealth.app`
+   ```bash
+   gh issue create --repo Tiro-health/ehr-app-build \
+     --title "Register app: <name>" --body "### Repository
 
-   Tell them that once Tiro approves it, publishing puts the app online at that address, and
-   that you can keep building in the meantime.
+   <owner>/<repo>
+
+   ### Repository id
+
+   <id>
+
+   ### Web address name
+
+   <name>
+
+   ### What does the app do?
+
+   <one or two sentences from step 2: what it does and who uses it>
+
+   ### Tiro Deploy
+
+   - [X] I installed the Tiro.health Deploy GitHub App on this repository."
+   ```
+
+   Within a minute a check comments on it. If it asks for a change (for example, the name is
+   taken), agree a new name with the clinician and fix it with `gh issue edit <number> --body …`.
+   Once it says the request is complete, tell the clinician Tiro approves it by hand, that the
+   app goes online at that address on the first publish after approval, and that you can keep
+   building in the meantime. Note the issue URL for the publish step.
 
 ## 4. Patient data, said once
 
