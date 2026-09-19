@@ -60,8 +60,8 @@ anonymous data.
 ## 5. Commit and publish
 
 - Commit with a message like `Set up <app name>`.
-- Invoke the `publish` skill. The first time, the clinician registers the app in Tiro's app
-  manager to get its web address. Explain that after that every change gets published the same
+- Invoke the `publish` skill. The first time, the clinician installs the Tiro Deploy app on
+  the repository and Tiro approves the app, which gives it its web address. Explain that after that every change gets published the same
   way when you push it.
 
 ## 6. Close

@@ -23,7 +23,8 @@ registries: if you can describe it, you can build it.
    ```
 
 Claude will ask what you want to build, set the app up, and publish it. The first time, you
-register the app in Tiro's app manager to give it a web address on tirohealth.app.
+install the Tiro Deploy app on your repository and Tiro approves your app, which gives it a web
+address on tirohealth.app.
 
 ## After that
 
