@@ -1,0 +1,15 @@
+# Checks and builds the app with Tiro's shared workflow. On pushes to main (and v* tags)
+# it hands the image to Tiro Deploy, which publishes it to https://<app>.tirohealth.app
+# once the checks and build pass.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    uses: Tiro-health/ehr-app-build/.github/workflows/build.yml@v1
