@@ -40,9 +40,25 @@ Do not ask about colours, fonts or layout. Pick calm, clinical defaults. They ca
 
 ## 3. Get the web address started
 
-Two things only the clinician can do are needed before the app can go online: installing Tiro's
-publishing app on the repository, and Tiro approving the app's web address. Approval is done by
-hand and takes time, so start both now and let them run while you build.
+The app needs a web address, and Tiro gives out addresses. There are two ways, and the first
+thing to do is ask the clinician: **did Tiro send you an invitation link?** An invitation link
+looks like `https://apps.tirohealth.app/invite/...`.
+
+Whichever way, start now and let it run while you build.
+
+### With an invitation link
+
+Tiro already chose the address, so there is nothing to agree and nothing to wait for.
+
+1. Ask the clinician to open the link. It names the address they have been given.
+2. They follow the button to GitHub, install Tiro.health Deploy on this repository (choosing
+   **Only select repositories**), and approve the page GitHub shows.
+3. Back on Tiro's page they pick this repository from the list.
+4. Ask them for the address the last page showed, and use it from then on. Their app is
+   registered: if this repository has been built before, it goes online by itself within a
+   minute or two, and from now on every push to `main` publishes it.
+
+### Without an invitation link
 
 1. **Install Tiro Deploy.** Explain in one sentence that it is the app that puts their tool
    online. Ask them to open https://github.com/apps/tiro-health-deploy/installations/new, choose
@@ -52,8 +68,7 @@ hand and takes time, so start both now and let them run while you build.
    the app's name: 3 to 20 characters, lowercase letters, digits and hyphens, starting with a
    letter and not ending with a hyphen. Let them change it.
 3. **Ask Tiro for it.** Tell the clinician you are filing the request, and that it is public, so
-   it contains nothing about patients. Get the repository id with
-   `gh api repos/<owner>/<repo> --jq .id` and open the request on Tiro's side:
+   it contains nothing about patients. Open the request on Tiro's side:
 
    ```bash
    gh issue create --repo Tiro-health/ehr-app-build \
@@ -63,7 +78,7 @@ hand and takes time, so start both now and let them run while you build.
 
    ### Repository id
 
-   <id>
+   <id from: gh api repos/<owner>/<repo> --jq .id>
 
    ### Web address name
 

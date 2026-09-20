@@ -43,8 +43,9 @@ way while you wait. Follow the workflow with `gh run watch` on the latest `build
   installed on this repository. Ask the clinician to open https://github.com/apps/tiro-health-deploy/installations/new,
   choose their account, pick **Only select repositories**, select this repository and install.
   Then publish again with an empty commit: `git commit --allow-empty -m "Publish"` and push.
-- **"This repository is not registered"**: Tiro has not approved the app yet. Look for the
-  request:
+- **"This repository is not registered"**: the app has no web address yet. If Tiro sent an
+  invitation link, the clinician opens it and picks this repository, which registers the app on
+  the spot (step 3 of the `onboarding` skill). Otherwise look for the request:
   `gh issue list --repo Tiro-health/ehr-app-build --label app-registration --state all --search "<owner>/<repo> in:body"`.
   - Open: it is waiting for Tiro. If it is labelled `needs-changes`, read the check's comment
     and fix the request with the clinician. Tell them you will publish again once it is approved.
