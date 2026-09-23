@@ -1,15 +1,12 @@
 import { defineConfig } from 'vitest/config'
-import { tanstackRouter } from '@tanstack/router-plugin/vite'
+import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   resolve: { tsconfigPaths: true },
-  plugins: [
-    tailwindcss(),
-    tanstackRouter({ target: 'react', autoCodeSplitting: true }),
-    viteReact(),
-  ],
+  server: { port: 3000 },
+  plugins: [tailwindcss(), tanstackStart(), viteReact()],
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],

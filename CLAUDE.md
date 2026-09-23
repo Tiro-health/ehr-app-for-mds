@@ -28,7 +28,7 @@ clinical tools with Claude Code. The person you are working with is a medical do
 | Concern       | Choice                                              |
 | ------------- | --------------------------------------------------- |
 | Language      | TypeScript, strict                                  |
-| Framework     | React 19 + Vite                                     |
+| Framework     | React 19 + TanStack Start (server rendering), Vite  |
 | Routing       | TanStack Router, file-based routes in `src/routes/` |
 | Styling       | Tailwind CSS v4                                     |
 | UI components | shadcn/ui on Base UI, in `src/components/ui/`       |
@@ -36,16 +36,17 @@ clinical tools with Claude Code. The person you are working with is a medical do
 | Tests         | Vitest + Testing Library                            |
 | Hosting       | tirohealth.app via the Tiro Deploy GitHub App       |
 
-There is no backend. Everything runs in the browser.
+Pages are rendered on a small Node server (`server.js`) and then take over in the browser. The
+server keeps no data: it only renders pages. Everything the app stores stays in the browser.
 
 ## Layout
 
 ```
 src/
   app.config.ts        App name and tagline. Edit this to rename the app.
-  main.tsx             Router setup. Rarely touched.
+  router.tsx           Router setup. Rarely touched.
   styles.css           Tailwind and theme variables (colours live here).
-  routes/              One file per URL. __root.tsx is the shared layout with the header.
+  routes/              One file per URL. __root.tsx is the HTML shell and the shared header.
   pages/               The actual page content, one file per page, plus its test.
   components/          Reusable pieces built for this app.
   components/ui/       shadcn components. Add more with `pnpm dlx shadcn@latest add <name>`.
@@ -59,6 +60,9 @@ src/
 - **UI**: use the shadcn components in `src/components/ui/` before writing custom markup. Add
   missing ones with the shadcn CLI, never by hand. Never edit files in `src/components/ui/`.
 - **Imports**: use the `@/` alias for anything under `src/`.
+- **Browser-only code**: pages also render on the server, where `window`, `localStorage` and
+  IndexedDB do not exist. Touch them only in `useEffect` or event handlers, never while rendering.
+  Do not add server functions that store or receive patient data.
 - **State**: React state in the page. No global state library unless a skill introduces one.
 - **Tests**: every page gets a small test next to it that renders it and checks the heading.
   Clinical calculations get unit tests with the reference values from the source publication.
@@ -75,5 +79,6 @@ pnpm install     install dependencies (once)
 pnpm dev         local preview at http://localhost:3000
 pnpm check       types, lint, format, tests
 pnpm format      auto-fix formatting and lint
-pnpm build       production build into dist/
+pnpm build       production build into dist/client and dist/server
+pnpm start       run the production build at http://localhost:3000
 ```
