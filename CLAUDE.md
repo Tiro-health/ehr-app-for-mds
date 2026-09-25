@@ -36,7 +36,7 @@ clinical tools with Claude Code. The person you are working with is a medical do
 | Tests         | Vitest + Testing Library                            |
 | Hosting       | tirohealth.app via the Tiro Deploy GitHub App       |
 
-Pages are rendered on a small Node server (`server.js`) and then take over in the browser. The
+Pages are rendered on a small Node server (built by Nitro into `.output/`) and then take over in the browser. The
 server keeps no data: it only renders pages. Everything the app stores stays in the browser.
 
 ## Layout
@@ -79,6 +79,6 @@ pnpm install     install dependencies (once)
 pnpm dev         local preview at http://localhost:3000
 pnpm check       types, lint, format, tests
 pnpm format      auto-fix formatting and lint
-pnpm build       production build into dist/client and dist/server
+pnpm build       production build into .output/
 pnpm start       run the production build at http://localhost:3000
 ```

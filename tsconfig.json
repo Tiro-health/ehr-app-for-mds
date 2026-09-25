@@ -3,8 +3,7 @@
     "src",
     "vite.config.ts",
     "eslint.config.js",
-    "prettier.config.js",
-    "server.js"
+    "prettier.config.js"
   ],
   "compilerOptions": {
     "target": "ES2022",
