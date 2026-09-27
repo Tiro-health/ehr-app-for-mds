@@ -108,7 +108,7 @@ anonymous data.
 
 ## 5. Set the app up
 
-- Put the name and a one-line tagline in `src/app.config.ts` and the `<title>` in `index.html`.
+- Put the name and a one-line tagline in `src/app.config.ts` (the page title follows the name).
 - Build the first version of the tool as a page under `src/pages/` with a route in `src/routes/`,
   following `CLAUDE.md`. Replace the example content on the home page with the tool itself, or
   make the home page an index if there will clearly be several tools.

@@ -1,12 +1,45 @@
-import { Link, Outlet, createRootRoute } from '@tanstack/react-router'
+import type { ReactNode } from 'react'
+import {
+  HeadContent,
+  Link,
+  Outlet,
+  Scripts,
+  createRootRoute,
+} from '@tanstack/react-router'
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { appConfig } from '@/app.config'
-import '@/styles.css'
+import appCss from '@/styles.css?url'
 
 export const Route = createRootRoute({
+  head: () => ({
+    meta: [
+      { charSet: 'utf-8' },
+      { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+      { title: appConfig.name },
+    ],
+    links: [
+      { rel: 'stylesheet', href: appCss },
+      { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' },
+    ],
+  }),
+  shellComponent: RootDocument,
   component: RootLayout,
   notFoundComponent: NotFound,
 })
+
+function RootDocument({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en">
+      <head>
+        <HeadContent />
+      </head>
+      <body>
+        {children}
+        <Scripts />
+      </body>
+    </html>
+  )
+}
 
 function NotFound() {
   return (

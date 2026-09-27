@@ -1,4 +1,5 @@
 dist
+.output
 pnpm-lock.yaml
 src/routeTree.gen.ts
 src/components/ui
