@@ -1,6 +1,6 @@
-import { useState } from 'react'
 import { appConfig } from '@/app.config'
 import { Button } from '@/components/ui/button'
+import { useAppState, type AppStateStatus } from '@/hooks/use-app-state'
 import {
   Card,
   CardContent,
@@ -10,7 +10,10 @@ import {
 } from '@/components/ui/card'
 
 export function HomePage() {
-  const [clicks, setClicks] = useState(0)
+  const [clicks, setClicks, saved] = useAppState('click-count', 0, {
+    parse: (v) =>
+      typeof v === 'number' && Number.isInteger(v) ? v : undefined,
+  })
 
   return (
     <div className="space-y-6">
@@ -34,8 +37,19 @@ export function HomePage() {
           <span className="text-sm text-muted-foreground">
             Clicked {clicks} {clicks === 1 ? 'time' : 'times'}
           </span>
+          <span className="ml-auto text-xs text-muted-foreground">
+            {savedLabel[saved]}
+          </span>
         </CardContent>
       </Card>
     </div>
   )
+}
+
+const savedLabel: Record<AppStateStatus, string> = {
+  loading: '',
+  ehr: 'Saved in the EHR',
+  device: 'Saved on this device',
+  conflict: 'Updated elsewhere: showing the latest',
+  error: 'Could not save',
 }

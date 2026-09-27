@@ -14,9 +14,10 @@ clinical tools with Claude Code. The person you are working with is a medical do
 - Commit after each completed piece of work with a message the clinician would understand.
 - When something fails, fix it. Only ask the clinician when the decision is theirs (what the tool
   should do, what it is called, what it should look like).
-- Patient data: this app runs in the browser and stores data only on the device. If the clinician
-  wants to record real patient data, remind them once, briefly, that the browser is the security
-  boundary and data can be lost with the browser profile. See the `local-data` skill when it exists.
+- Saved data: when the app is opened from the EHR, what it saves is stored in the EHR for the
+  signed-in clinician. Opened on its own, it is saved in the browser only, and can be lost with the
+  browser profile. If the clinician wants to record real patient data, remind them once, briefly,
+  that saved app data is for settings and tool state, not for the patient record.
 
 ## Skills
 
@@ -36,8 +37,11 @@ clinical tools with Claude Code. The person you are working with is a medical do
 | Tests         | Vitest + Testing Library                            |
 | Hosting       | tirohealth.app via the Tiro Deploy GitHub App       |
 
-Pages are rendered on a small Node server (built by Nitro into `.output/`) and then take over in the browser. The
-server keeps no data: it only renders pages. Everything the app stores stays in the browser.
+Pages are rendered on a small Node server (built by Nitro into `.output/`) and then take over in
+the browser. The server keeps no data of its own. When the EHR launches the app (SMART on FHIR,
+`/smart/launch`), the server signs in as a confidential client, keeps the sign-in in an encrypted
+cookie, and relays saved data to the EHR as SMART App State. Without a launch, saved data stays in
+the browser.
 
 ## Layout
 
@@ -50,7 +54,8 @@ src/
   pages/               The actual page content, one file per page, plus its test.
   components/          Reusable pieces built for this app.
   components/ui/       shadcn components. Add more with `pnpm dlx shadcn@latest add <name>`.
-  lib/                 Helpers.
+  hooks/               React hooks. use-app-state.ts saves data (EHR or browser).
+  lib/                 Helpers. lib/smart/ is the SMART launch and App State client.
 ```
 
 ## Conventions
@@ -60,9 +65,14 @@ src/
 - **UI**: use the shadcn components in `src/components/ui/` before writing custom markup. Add
   missing ones with the shadcn CLI, never by hand. Never edit files in `src/components/ui/`.
 - **Imports**: use the `@/` alias for anything under `src/`.
+- **Saving data**: use `useAppState(key, initial, { parse })` from `@/hooks/use-app-state` like
+  `useState`. Keys are short lowercase names (`click-count`). Values must be JSON and stay well
+  under 256 KB; always pass `parse` to check what comes back, because stored values are untrusted.
+  App State is for settings and tool state only: never use it for clinical facts (diagnoses,
+  observations, patient registries). The SMART spec forbids that.
 - **Browser-only code**: pages also render on the server, where `window`, `localStorage` and
   IndexedDB do not exist. Touch them only in `useEffect` or event handlers, never while rendering.
-  Do not add server functions that store or receive patient data.
+  Do not add other server functions that store or receive patient data.
 - **State**: React state in the page. No global state library unless a skill introduces one.
 - **Tests**: every page gets a small test next to it that renders it and checks the heading.
   Clinical calculations get unit tests with the reference values from the source publication.
@@ -82,3 +92,19 @@ pnpm format      auto-fix formatting and lint
 pnpm build       production build into .output/
 pnpm start       run the production build at http://localhost:3000
 ```
+
+## EHR launch settings
+
+The server reads these from its environment. Without them the app still works and saves in the
+browser.
+
+| Variable              | What it is                                                     |
+| --------------------- | -------------------------------------------------------------- |
+| `SMART_CLIENT_ID`     | The app's client id at the EHR                                 |
+| `SMART_CLIENT_SECRET` | The app's client secret (confidential client)                  |
+| `SMART_ISS`           | FHIR base URL(s) the app may be launched from, comma-separated |
+| `APP_URL`             | Public address, e.g. `https://<app>.tirohealth.app`            |
+| `SESSION_SECRET`      | At least 32 random characters, encrypts the sign-in cookie     |
+| `SMART_SCOPE`         | Optional, default `openid fhirUser launch user/Basic.cruds`    |
+
+Register `APP_URL/smart/launch` as the launch URL and `APP_URL/smart/callback` as the redirect.
