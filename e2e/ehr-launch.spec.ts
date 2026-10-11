@@ -150,19 +150,41 @@ test.describe('opened from the EHR', () => {
       'The EHR does not advertise smart-app-state and sso-openid-connect yet (Tiro-health/ehr#2761, #2763).',
     )
     const app = await openFromChart(page)
+    const saved = app.getByTestId('setting-saved')
+    const pressed = (name: string) =>
+      expect(app.getByRole('button', { name })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
     await app.getByRole('button', { name: '10' }).click()
-    await expect(app.getByTestId('setting-saved')).toHaveText(
-      'Saved in the EHR for you',
-    )
-    // A fresh browser (no device storage) still gets the clinician's setting from the EHR.
+    await expect(saved).toHaveText('Saved in the EHR for you')
+
+    // A fresh read with nothing on the device: the setting comes back from the EHR.
     await app.evaluate(() => window.localStorage.clear())
     await app.reload()
-    await expect(app.getByRole('button', { name: '10' })).toHaveAttribute(
+    await pressed('10')
+    await expect(saved).toHaveText('Saved in the EHR for you')
+    expect(
+      await app.evaluate(() =>
+        window.localStorage.getItem('app-state:encounters-shown'),
+      ),
+    ).toBeNull()
+
+    // Another tab saves first; this tab's save then carries a stale version, and the app
+    // shows the newer setting instead of overwriting it.
+    const other = await app.context().newPage()
+    await other.goto('http://localhost:3001/')
+    await expect(other.getByRole('button', { name: '10' })).toHaveAttribute(
       'aria-pressed',
       'true',
     )
-    await expect(app.getByTestId('setting-saved')).toHaveText(
+    await other.getByRole('button', { name: 'All' }).click()
+    await expect(other.getByTestId('setting-saved')).toHaveText(
       'Saved in the EHR for you',
     )
+
+    await app.getByRole('button', { name: '5' }).click()
+    await expect(saved).toHaveText('Changed elsewhere: showing the latest')
+    await pressed('All')
   })
 })

@@ -119,9 +119,8 @@ test('with App State in the EHR, the setting is saved there for the clinician', 
     (r) => r.resourceType === 'Basic',
   )
   expect(saved).toMatchObject({
-    subject: {
-      reference: 'https://ehr.example.org/t/clinic/fhir/R4/Practitioner/123',
-    },
+    // Stored relative to the EHR's own address, as the Tiro EHR does.
+    subject: { reference: 'Practitioner/123' },
     code: { coding: [{ code: 'encounters-shown' }] },
     extension: [{ valueString: '10' }],
   })
