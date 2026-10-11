@@ -313,6 +313,7 @@ export function fakeEhr(
     body: string,
     id: string | undefined,
   ) {
+    const base = appStateBase
     if (method === 'GET' && !id) {
       const [system, code] = (url.searchParams.get('code') ?? '').split('|')
       const subject = url.searchParams.get('subject')
@@ -322,7 +323,7 @@ export function fakeEhr(
             r.resourceType === 'Basic' &&
             codingOf(r)?.system === system &&
             codingOf(r)?.code === code &&
-            subjectOf(r) === subject,
+            absoluteSubject(r, base) === subject,
         )
         .map((resource) => ({ resource }))
       return json(200, { resourceType: 'Bundle', type: 'searchset', entry })
@@ -334,7 +335,19 @@ export function fakeEhr(
     if (method === 'POST') {
       const r = JSON.parse(body) as Resource
       if (r.id || r.meta) return json(400, outcome('No id on create'))
-      const saved = { ...r, id: String(nextId++), meta: { versionId: '1' } }
+      const duplicate = [...resources.values()].some(
+        (other) =>
+          other.resourceType === 'Basic' &&
+          JSON.stringify(other.code) === JSON.stringify(r.code) &&
+          absoluteSubject(other, base) === absoluteSubject(r, base),
+      )
+      if (duplicate) return json(409, outcome('State exists for this code'))
+      // Like HAPI, references to this server's own resources are stored relative.
+      const saved = {
+        ...relativeSubject(r, base),
+        id: String(nextId++),
+        meta: { versionId: '1' },
+      }
       resources.set(`Basic/${saved.id}`, saved)
       return json(201, saved, {
         Location: `${appStateBase}/Basic/${saved.id}/_history/1`,
@@ -346,17 +359,19 @@ export function fakeEhr(
       const r = JSON.parse(body) as Resource
       const version = (existing?.meta as { versionId: string } | undefined)
         ?.versionId
+      if (!headers.get('If-Match'))
+        return json(428, outcome('If-Match is required'))
       if (
         !existing ||
         headers.get('If-Match') !== `W/"${version}"` ||
         r.id !== id ||
-        subjectOf(r) !== subjectOf(existing) ||
+        absoluteSubject(r, base) !== absoluteSubject(existing, base) ||
         JSON.stringify(r.code) !== JSON.stringify(existing.code)
       ) {
         return json(412, outcome('Version conflict'))
       }
       const next = String(Number(version) + 1)
-      const saved = { ...r, meta: { versionId: next } }
+      const saved = { ...relativeSubject(r, base), meta: { versionId: next } }
       resources.set(`Basic/${id}`, saved)
       return json(200, saved, { ETag: `W/"${next}"` })
     }
@@ -486,6 +501,18 @@ function granted(scope: string, type: string, letter: string) {
     const m = /^patient\/([A-Za-z]+)\.([cruds]+)$/.exec(s)
     return m?.[1] === type && m[2].includes(letter)
   })
+}
+
+function absoluteSubject(r: Resource, base: string) {
+  const ref = subjectOf(r)
+  return ref ? new URL(ref, `${base}/`).href : undefined
+}
+
+function relativeSubject(r: Resource, base: string): Resource {
+  const ref = subjectOf(r)
+  return ref?.startsWith(`${base}/`)
+    ? { ...r, subject: { reference: ref.slice(base.length + 1) } }
+    : r
 }
 
 function subjectOf(r: Resource) {

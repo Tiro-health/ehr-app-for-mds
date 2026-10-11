@@ -96,8 +96,8 @@ export async function createClinician(slug = CLINIC): Promise<Clinician> {
 
 /**
  * Removes the clinician and what their launches left behind: the launch, the grant held by
- * "the app on behalf of this clinician", and the documents and encounters the app created on
- * their behalf.
+ * "the app on behalf of this clinician", and the documents, encounters and App State the app
+ * created on their behalf.
  */
 export async function deleteClinician(clinician: Clinician) {
   await withDb((sql) =>
@@ -112,6 +112,10 @@ export async function deleteClinician(clinician: Clinician) {
       await tx`delete from smart.app_grant where actor_id in (${appActors})`
       await tx`delete from public.documents where created_by in (${appActors})`
       await tx`delete from public.encounters where created_by in (${appActors})`
+      const [{ appState }] = await tx<{ appState: string | null }[]>`
+        select to_regclass('public.smart_app_state')::text as "appState"`
+      if (appState)
+        await tx`delete from public.smart_app_state where created_by in (${appActors}) or updated_by in (${appActors})`
       await tx`delete from public.actor where id in (${appActors})`
       await tx`delete from public.profile where id = ${clinician.id}`
       await tx`delete from public.actor where practitioner_id = ${clinician.id}`
