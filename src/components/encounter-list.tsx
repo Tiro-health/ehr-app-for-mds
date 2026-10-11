@@ -46,6 +46,7 @@ export function EncounterList() {
               size="sm"
               variant={shown === choice ? 'default' : 'outline'}
               aria-pressed={shown === choice}
+              disabled={saved === 'loading'}
               onClick={() => setShown(choice)}
             >
               {choice === 0 ? 'All' : choice}

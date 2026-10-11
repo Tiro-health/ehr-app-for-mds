@@ -156,7 +156,10 @@ test.describe('opened from the EHR', () => {
         'aria-pressed',
         'true',
       )
+    // Loaded from the EHR (and the page is live) before anything is clicked.
+    await expect(saved).toHaveText('Saved in the EHR for you')
     await app.getByRole('button', { name: '10' }).click()
+    await pressed('10')
     await expect(saved).toHaveText('Saved in the EHR for you')
 
     // A fresh read with nothing on the device: the setting comes back from the EHR.
@@ -174,6 +177,9 @@ test.describe('opened from the EHR', () => {
     // shows the newer setting instead of overwriting it.
     const other = await app.context().newPage()
     await other.goto('http://localhost:3001/')
+    await expect(other.getByTestId('setting-saved')).toHaveText(
+      'Saved in the EHR for you',
+    )
     await expect(other.getByRole('button', { name: '10' })).toHaveAttribute(
       'aria-pressed',
       'true',
