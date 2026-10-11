@@ -18,8 +18,14 @@ import type { PrivateJwk } from './keys'
 export type SmartSettings = {
   clientId: string
   privateJwk: PrivateJwk
-  /** FHIR base URLs this app may be launched from. Anything else is refused. */
+  /**
+   * FHIR base URLs this app may be launched from. An entry ending in `/` is a prefix: it admits
+   * every base below it (`https://fhir.example.org/t/` admits `…/t/<clinic>/fhir/R4`).
+   * Anything else is refused.
+   */
   allowedIssuers: string[]
+  /** The published key set (SMART_PUBLIC_JWKS), for key rotation; else the signing key's half. */
+  publicJwks?: { keys: JsonWebKey[] }
   /** Public origin of this app, e.g. https://my-app.tirohealth.app */
   appUrl: string
   /** The data scopes to ask for; app.config.ts `ehr.scopes` unless set (tests). */
@@ -92,15 +98,71 @@ export function readSettings(env = process.env): SmartSettings | null {
     warnOnce(`SMART is half configured; missing ${missing.join(', ')}.`)
     return null
   }
+  const privateJwk = parsePrivateJwk(values.SMART_PRIVATE_JWK!)
   return {
     clientId: values.SMART_CLIENT_ID!.trim(),
-    privateJwk: parsePrivateJwk(values.SMART_PRIVATE_JWK!),
+    privateJwk,
     allowedIssuers: values
       .SMART_ISS!.split(',')
-      .map(normalizeBase)
-      .filter(Boolean),
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) =>
+        entry.endsWith('/') ? entry.replace(/\/+$/, '/') : normalizeBase(entry),
+      ),
     appUrl: normalizeBase(values.APP_URL!),
+    ...(env.SMART_PUBLIC_JWKS?.trim()
+      ? { publicJwks: parsePublicJwks(env.SMART_PUBLIC_JWKS, privateJwk.kid) }
+      : {}),
   }
+}
+
+/**
+ * Whether the app may be launched from `iss`: an exact entry, or below a prefix entry by plain
+ * path segments only, so `..`, encoded characters, a query or another host can never slip in.
+ */
+export function isAllowedIssuer(settings: SmartSettings, iss: string) {
+  const exact = settings.allowedIssuers.filter((e) => !e.endsWith('/'))
+  if (exact.includes(iss)) return true
+  let canonical: string
+  try {
+    canonical = new URL(iss).href
+  } catch {
+    return false
+  }
+  if (canonical !== iss && canonical !== `${iss}/`) return false
+  return settings.allowedIssuers.some((entry) => {
+    if (!entry.endsWith('/') || !iss.startsWith(entry)) return false
+    const segments = iss.slice(entry.length).split('/')
+    return segments.every(
+      (segment) =>
+        /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(segment) &&
+        segment !== '.' &&
+        segment !== '..',
+    )
+  })
+}
+
+/** SMART_PUBLIC_JWKS: public keys only, and it must hold the key the app signs with. */
+function parsePublicJwks(text: string, signingKid: string) {
+  let jwks: { keys?: unknown }
+  try {
+    jwks = JSON.parse(text) as { keys?: unknown }
+  } catch {
+    throw new Error('SMART_PUBLIC_JWKS is not valid JSON.')
+  }
+  if (!Array.isArray(jwks.keys)) {
+    throw new Error('SMART_PUBLIC_JWKS must be a JWK Set: {"keys": [...]}.')
+  }
+  const keys = jwks.keys as (JsonWebKey & { kid?: string })[]
+  if (keys.some((k) => 'd' in k)) {
+    throw new Error('SMART_PUBLIC_JWKS must not contain private keys.')
+  }
+  if (!keys.some((k) => k.kid === signingKid)) {
+    throw new Error(
+      `SMART_PUBLIC_JWKS does not contain the signing key (kid ${signingKid}).`,
+    )
+  }
+  return { keys: keys as JsonWebKey[] }
 }
 
 export function normalizeBase(url: string) {
@@ -171,7 +233,7 @@ export async function startLaunch(
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ redirectTo: string; pending: PendingLaunch }> {
   const iss = normalizeBase(params.iss)
-  if (!settings.allowedIssuers.includes(iss)) {
+  if (!isAllowedIssuer(settings, iss)) {
     throw new LaunchError(`This app may not be launched from ${iss}.`)
   }
   const discovery = await discover(iss, fetchImpl)

@@ -1,5 +1,6 @@
 import {
   finishLaunch,
+  isAllowedIssuer,
   readSettings,
   refreshConnection,
   scopeFor,
@@ -41,7 +42,7 @@ test('settings need client id, private key, issuers and app url', async () => {
     readSettings({
       SMART_CLIENT_ID: 'a',
       SMART_PRIVATE_JWK: key,
-      SMART_ISS: `${ISS}/, https://other.example.org/t/x/fhir/R4`,
+      SMART_ISS: ` ${ISS} , https://other.example.org/t/x/fhir/R4`,
       APP_URL: 'https://my-app.tirohealth.app/',
     }),
   ).toMatchObject({
@@ -241,4 +242,64 @@ test('a refresh the EHR refuses ends the connection', async () => {
       ehr.fetch,
     ),
   ).toBeNull()
+})
+
+test('a SMART_ISS entry ending in / admits the tenant bases below it, and nothing else', async () => {
+  const settings = readSettings({
+    SMART_CLIENT_ID: 'a',
+    SMART_PRIVATE_JWK: JSON.stringify(await testKey()),
+    SMART_ISS:
+      'https://fhir.ehr.example.org/t/, https://other.example.org/fhir/R4',
+    APP_URL: APP_URL,
+  })!
+  expect(settings.allowedIssuers).toEqual([
+    'https://fhir.ehr.example.org/t/',
+    'https://other.example.org/fhir/R4',
+  ])
+  const allowed = (iss: string) => isAllowedIssuer(settings, iss)
+  expect(allowed('https://fhir.ehr.example.org/t/dermato/fhir/R4')).toBe(true)
+  expect(allowed('https://fhir.ehr.example.org/t/leiedal/fhir/R5')).toBe(true)
+  expect(allowed('https://other.example.org/fhir/R4')).toBe(true)
+  expect(allowed('https://other.example.org/fhir/R4/x')).toBe(false)
+  expect(allowed('https://fhir.ehr.example.org/t/')).toBe(false)
+  expect(allowed('https://fhir.ehr.example.org/t/../admin')).toBe(false)
+  expect(allowed('https://fhir.ehr.example.org/t/%2e%2e/admin')).toBe(false)
+  expect(allowed('https://fhir.ehr.example.org/t/a/fhir/R4?x=1')).toBe(false)
+  expect(allowed('https://fhir.ehr.example.org/t/a//fhir')).toBe(false)
+  expect(allowed('https://fhir.ehr.example.org/tx/a/fhir/R4')).toBe(false)
+  expect(allowed('https://fhir.ehr.example.org.evil.com/t/a/fhir/R4')).toBe(
+    false,
+  )
+  expect(allowed('https://user@fhir.ehr.example.org/t/a/fhir/R4')).toBe(false)
+})
+
+test('SMART_PUBLIC_JWKS is published as is, and must hold the signing key and no private keys', async () => {
+  const key = await testKey()
+  const env = {
+    SMART_CLIENT_ID: 'a',
+    SMART_PRIVATE_JWK: JSON.stringify(key),
+    SMART_ISS: ISS,
+    APP_URL: APP_URL,
+  }
+  const signing = { kty: 'EC', crv: 'P-384', x: key.x, y: key.y, kid: key.kid }
+  const next = { ...signing, kid: 'next-key' }
+  expect(
+    readSettings({
+      ...env,
+      SMART_PUBLIC_JWKS: JSON.stringify({ keys: [signing, next] }),
+    })!.publicJwks,
+  ).toEqual({ keys: [signing, next] })
+  expect(readSettings(env)!.publicJwks).toBeUndefined()
+  expect(() =>
+    readSettings({
+      ...env,
+      SMART_PUBLIC_JWKS: JSON.stringify({ keys: [next] }),
+    }),
+  ).toThrow('does not contain the signing key')
+  expect(() =>
+    readSettings({
+      ...env,
+      SMART_PUBLIC_JWKS: JSON.stringify({ keys: [key] }),
+    }),
+  ).toThrow('must not contain private keys')
 })
