@@ -115,7 +115,7 @@ anonymous data.
 - Write the page test. For any clinical score or formula, add unit tests with reference values
   and cite the source in a comment.
 - Run `pnpm check` and fix everything it reports.
-- Start `pnpm dev` and tell the clinician to open http://localhost:3000 if they are running
+- Start `pnpm dev` and tell the clinician to open http://localhost:3001 if they are running
   locally. Ask for one round of feedback and apply it.
 
 ## 6. Commit and publish

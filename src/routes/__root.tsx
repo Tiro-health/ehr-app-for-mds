@@ -8,6 +8,7 @@ import {
 } from '@tanstack/react-router'
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { appConfig } from '@/app.config'
+import { SmartProvider } from '@/hooks/use-smart'
 import appCss from '@/styles.css?url'
 
 export const Route = createRootRoute({
@@ -75,7 +76,9 @@ function RootLayout() {
         </nav>
       </header>
       <main className="mx-auto max-w-4xl px-4 py-8">
-        <Outlet />
+        <SmartProvider>
+          <Outlet />
+        </SmartProvider>
       </main>
       {import.meta.env.DEV && (
         <TanStackRouterDevtools position="bottom-right" />
