@@ -5,7 +5,9 @@
  * FHIR server that only answers to a live token. `sso-openid-connect` and `smart-app-state`
  * can be switched on to test what the EHR will offer next.
  */
+import type { FhirResource } from 'fhir/r4'
 import { fromBase64Url, publicJwk, type PrivateJwk } from './keys'
+import type { EhrConnection } from './connection.functions'
 import type { SmartSettings } from './launch'
 
 export const ORIGIN = 'https://ehr.example.org'
@@ -65,6 +67,7 @@ export function fakeEhr(
   >()
   const seenJti = new Set<string>()
   const tokenRequests: URLSearchParams[] = []
+  const fhirRequests: string[] = []
   let nextId = 1000
   const appStateBase = options.appState === 'associated' ? APP_STATE : ISS
   const clientKey = publicJwk(settings.privateJwk)
@@ -217,6 +220,7 @@ export function fakeEhr(
   }
 
   function fhir(url: URL, method: string, headers: Headers, body: string) {
+    fhirRequests.push(url.href)
     const grant = liveGrant(headers)
     if (!grant) return json(401, outcome('Not authorised'))
     const base = url.href.startsWith(appStateBase) ? appStateBase : ISS
@@ -225,6 +229,11 @@ export function fakeEhr(
       .split('?')[0]
       .split('/')
     if (type === 'Basic') return basic(url, method, headers, body, id)
+    const letter = method === 'POST' ? 'c' : id ? 'r' : 's'
+    if (!granted(grant.scope, type, letter))
+      return json(403, outcome('The request could not be completed.'))
+    if (method === 'POST' && type === 'DocumentReference' && !id)
+      return createDocument(body, grant)
     if (method !== 'GET') return json(405, outcome('Not allowed'))
     if (id) {
       const found = resources.get(`${type}/${id}`)
@@ -233,15 +242,62 @@ export function fakeEhr(
         return json(404, outcome('Not found'))
       return json(200, found)
     }
-    const entry = [...resources.values()]
+    const allowed = SEARCH_PARAMETERS[type] ?? []
+    for (const name of url.searchParams.keys()) {
+      if (!['_count', '_offset'].includes(name) && !allowed.includes(name))
+        return json(400, outcome('unsupported search parameter'))
+    }
+    const all = [...resources.values()]
       .filter((r) => r.resourceType === type && inCompartment(r, grant.patient))
       .filter((r) => matches(r, url.searchParams))
-      .map((resource) => ({ resource }))
+    const count = Number(url.searchParams.get('_count') ?? 50)
+    const offset = Number(url.searchParams.get('_offset') ?? 0)
+    const page = all.slice(offset, offset + count)
+    const nextUrl = new URL(url)
+    nextUrl.searchParams.set('_offset', String(offset + count))
     return json(200, {
       resourceType: 'Bundle',
       type: 'searchset',
-      total: entry.length,
-      entry,
+      total: all.length,
+      link: [
+        { relation: 'self', url: url.href },
+        ...(offset + count < all.length
+          ? [{ relation: 'next', url: nextUrl.href }]
+          : []),
+      ],
+      entry: page.map((resource) => ({
+        fullUrl: `${ISS}/${type}/${resource.id}`,
+        resource,
+      })),
+    })
+  }
+
+  /** The Tiro facade's DocumentReference create rules (S11/S12): refused elements are 422. */
+  function createDocument(body: string, grant: Grant) {
+    const doc = JSON.parse(body) as Resource & {
+      status?: string
+      type?: { coding?: { system?: string; code?: string }[] }
+      content?: { attachment?: { contentType?: string; data?: string } }[]
+    }
+    const problems = [
+      doc.status !== 'current' && 'status must be current',
+      'date' in doc && 'date is not stored',
+      'context' in doc && 'context is not stored',
+      subjectOf(doc) !== `Patient/${grant.patient}` &&
+        'subject names no patient this grant can reach',
+      !doc.type?.coding?.some((c) => c.system === 'urn:tv:document-kind') &&
+        'type needs a urn:tv:document-kind coding',
+      ['encounter_note', 'quote'].includes(doc.type?.coding?.[0]?.code ?? '') &&
+        'type names a document kind this clinic does not file',
+      doc.content?.length !== 1 && 'content must carry exactly one attachment',
+      !doc.content?.[0]?.attachment?.contentType && 'contentType is required',
+      !doc.content?.[0]?.attachment?.data && 'data is required',
+    ].filter(Boolean)
+    if (problems.length) return json(422, outcome(problems.join('; ')))
+    const saved = { ...doc, id: String(nextId++), meta: { versionId: '1' } }
+    resources.set(`DocumentReference/${saved.id}`, saved)
+    return json(201, saved, {
+      Location: `${ISS}/DocumentReference/${saved.id}/_history/1`,
     })
   }
 
@@ -355,9 +411,12 @@ export function fakeEhr(
     fetch: fetchImpl as typeof fetch,
     resources,
     tokenRequests,
+    /** Every FHIR request, in order. */
+    fhirRequests,
     /** Adds resources to the EHR's records. */
-    add(...list: Resource[]) {
-      for (const r of list) resources.set(`${r.resourceType}/${r.id}`, r)
+    add(...list: (Resource | FhirResource)[]) {
+      for (const r of list)
+        resources.set(`${r.resourceType}/${r.id}`, r as Resource)
     },
     /**
      * The EHR's side of the authorize redirect: checks what the app sent and, as if the
@@ -410,20 +469,33 @@ function inCompartment(r: Resource, patient: string) {
   return subjectOf(r) === `Patient/${patient}`
 }
 
+/** What the Tiro facade serves; anything else is a 400. */
+const SEARCH_PARAMETERS: Record<string, string[]> = {
+  Patient: ['gender', 'family', 'given', 'identifier'],
+  Encounter: ['status', 'class'],
+  DocumentReference: ['patient', 'subject', 'identifier'],
+}
+
+/** Exact matches only, like the facade. */
 function matches(r: Resource, params: URLSearchParams) {
   for (const [name, value] of params) {
     if (name.startsWith('_')) continue
     if (name === 'patient' || name === 'subject') {
       if (subjectOf(r) !== `Patient/${value.replace(/^Patient\//, '')}`)
         return false
-    } else if (name === 'status') {
-      if (r.status !== value) return false
-    } else {
-      // The Tiro facade refuses search parameters it does not know.
-      return false
-    }
+    } else if (name === 'class') {
+      if ((r.class as { code?: string } | undefined)?.code !== value)
+        return false
+    } else if (r[name] !== value) return false
   }
   return true
+}
+
+function granted(scope: string, type: string, letter: string) {
+  return scope.split(' ').some((s) => {
+    const m = /^patient\/([A-Za-z]+)\.([cruds]+)$/.exec(s)
+    return m?.[1] === type && m[2].includes(letter)
+  })
 }
 
 function absoluteSubject(r: Resource, base: string) {
@@ -474,15 +546,16 @@ async function s256(verifier: string) {
 }
 
 /**
- * A whole EHR launch against the fake EHR, and the browser's client for it: what a test needs
- * to exercise code that reads and writes through the EHR.
+ * A whole EHR launch against the fake EHR. `connect` plays the app's server
+ * (connection.functions.ts): it hands out the access token and refreshes it when it is about to
+ * expire or the EHR refused it. `client` is the browser's client for that connection.
  */
-export async function launchedClient(
+export async function launchInFakeEhr(
   ehr: ReturnType<typeof fakeEhr>,
   settings: SmartSettings,
   patient: string,
 ) {
-  const { startLaunch, finishLaunch, refreshConnection } =
+  const { startLaunch, finishLaunch, needsRefresh, refreshConnection } =
     await import('./launch')
   const { EhrClient } = await import('./client')
   const { redirectTo, pending } = await startLaunch(
@@ -503,16 +576,29 @@ export async function launchedClient(
       accessToken: connection.accessToken,
       expiresAt: connection.expiresAt,
       scope: connection.scope,
-      patient: connection.patient,
-      fhirUser: connection.fhirUser,
-      appStateEndpoint: connection.appStateEndpoint,
+      ...(connection.patient ? { patient: connection.patient } : {}),
+      ...(connection.fhirUser ? { fhirUser: connection.fhirUser } : {}),
+      ...(connection.appStateEndpoint
+        ? { appStateEndpoint: connection.appStateEndpoint }
+        : {}),
     }) as const
-  // Plays the app's server: refreshes the connection the way connection.functions.ts does.
-  const connect = async () => {
+  const connect = async (rejected?: string): Promise<EhrConnection> => {
+    if (rejected !== connection.accessToken && !needsRefresh(connection))
+      return asLaunched()
     const fresh = await refreshConnection(settings, connection, ehr.fetch)
-    if (!fresh) return { status: 'ended' } as const
+    if (!fresh) return { status: 'ended' }
     connection = fresh
     return asLaunched()
   }
-  return new EhrClient(asLaunched(), connect, () => {}, ehr.fetch)
+  const client = new EhrClient(asLaunched(), connect, () => {}, ehr.fetch)
+  return { client, connect }
+}
+
+/** The browser's client after a launch into the fake EHR. */
+export async function launchedClient(
+  ehr: ReturnType<typeof fakeEhr>,
+  settings: SmartSettings,
+  patient: string,
+) {
+  return (await launchInFakeEhr(ehr, settings, patient)).client
 }

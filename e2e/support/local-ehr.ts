@@ -128,6 +128,8 @@ export type ChartPatient = {
   birthDate: string
   gender: string
   encounters: number
+  /** The most recent encounter's day, YYYY-MM-DD. */
+  latestEncounter: string
 }
 
 /** A patient of the clinic with several encounters, so the app has something to show. */
@@ -137,7 +139,7 @@ export async function patientWithEncounters(
   const [row] = await withDb(
     (sql) => sql<ChartPatient[]>`
       select p.id, p.given, p.family, p.birth_date::text as "birthDate", p.gender,
-             count(e.id)::int as encounters
+             count(e.id)::int as encounters, max(e.occurred_on)::date::text as "latestEncounter"
         from public.patients p
         join public.org o on o.id = p.org_id
         join public.encounters e on e.patient_id = p.id and e.deleted_at is null

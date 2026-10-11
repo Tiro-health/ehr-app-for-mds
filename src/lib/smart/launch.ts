@@ -28,6 +28,8 @@ export type SmartSettings = {
   publicJwks?: { keys: JsonWebKey[] }
   /** Public origin of this app, e.g. https://my-app.tirohealth.app */
   appUrl: string
+  /** The data scopes to ask for; app.config.ts `ehr.scopes` unless set (tests). */
+  scopes?: readonly string[]
 }
 
 export type SmartConfiguration = {
@@ -243,7 +245,11 @@ export async function startLaunch(
     response_type: 'code',
     client_id: settings.clientId,
     redirect_uri: settings.appUrl + CALLBACK_PATH,
-    scope: scopeFor(discovery, params.launch ? 'ehr' : 'standalone'),
+    scope: scopeFor(
+      discovery,
+      params.launch ? 'ehr' : 'standalone',
+      settings.scopes,
+    ),
     state,
     aud: iss,
     code_challenge: await challenge(verifier),
