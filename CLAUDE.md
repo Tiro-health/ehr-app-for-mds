@@ -14,15 +14,22 @@ clinical tools with Claude Code. The person you are working with is a medical do
 - Commit after each completed piece of work with a message the clinician would understand.
 - When something fails, fix it. Only ask the clinician when the decision is theirs (what the tool
   should do, what it is called, what it should look like).
-- Saved data: when the app is opened from the EHR, what it saves is stored in the EHR for the
-  signed-in clinician. Opened on its own, it is saved in the browser only, and can be lost with the
-  browser profile. If the clinician wants to record real patient data, remind them once, briefly,
-  that saved app data is for settings and tool state, not for the patient record.
+- Patient data: opened from a patient's chart in the Tiro EHR, the app reads and writes that
+  patient's record in the EHR itself (see the `connect-to-ehr` skill); nothing about the patient
+  is kept by the app. What the app writes becomes part of the record, so confirm with the
+  clinician what will be written. Opened on its own, the app has no patient data; anything it
+  saves stays in this browser and can be lost with the browser profile. If the clinician wants to
+  record patient data outside the EHR, remind them once, briefly, that the browser is then the
+  only safeguard, and suggest writing it to the EHR instead.
+- A clinician's own settings are saved with `useAppState`: in the EHR for that clinician once
+  the EHR offers it, in the browser until then. Never put patient data in them.
 
 ## Skills
 
 - `/onboarding` is the entry point for a fresh repo. It settles what the app is and publishes it.
 - `/publish` gets the app live at `https://<app>.tirohealth.app` and reports the URL.
+- `connect-to-ehr` is how to read and write the patient's record in the EHR, test it, and run
+  it against the local EHR. Load it for anything that touches patient data.
 
 ## Stack (do not change)
 
@@ -34,7 +41,8 @@ clinical tools with Claude Code. The person you are working with is a medical do
 | Styling       | Tailwind CSS v4                                     |
 | UI components | shadcn/ui on Base UI, in `src/components/ui/`       |
 | Icons         | lucide-react                                        |
-| Tests         | Vitest + Testing Library                            |
+| Tests         | Vitest + Testing Library, Playwright end to end     |
+| EHR           | SMART on FHIR R4 with the Tiro EHR, types `fhir/r4` |
 | Hosting       | tirohealth.app via the Tiro Deploy GitHub App       |
 
 Pages are rendered on a small Node server (built by Nitro into `.output/`) and then take over in
@@ -79,6 +87,8 @@ src/
 - **State**: React state in the page. No global state library unless a skill introduces one.
 - **Tests**: every page gets a small test next to it that renders it and checks the heading.
   Clinical calculations get unit tests with the reference values from the source publication.
+  Anything that reads or writes the EHR gets a unit test against the fake EHR and an end-to-end
+  test in `e2e/` (see `connect-to-ehr`).
 - **Formatting and lint**: `pnpm format` fixes, `pnpm check` verifies (types, lint, format, tests).
 - **Deploy**: pushing to `main` deploys, once Tiro Deploy is installed and Tiro approved the app
   (see `/publish`). `.github/workflows/build.yml` runs `pnpm check` and `pnpm build` through

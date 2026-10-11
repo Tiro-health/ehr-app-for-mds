@@ -1,43 +1,10 @@
-import { expect, test } from '@playwright/test'
 import type { Page, Request } from '@playwright/test'
-import {
-  FACADE_URL,
-  createClinician,
-  deleteClinician,
-  discovery,
-  grantOf,
-  launchFromChart,
-  localEhrMissing,
-  patientWithEncounters,
-  signInWithSecondFactor,
-} from './support/local-ehr'
-import type { ChartPatient, Clinician } from './support/local-ehr'
+import { expect, test } from './support/ehr-test'
+import { FACADE_URL, discovery, grantOf } from './support/local-ehr'
 
 // A clinician opens the app from a patient's chart in the local Tiro EHR: real sign-in, real
 // second factor, real private_key_jwt, and the app reading the patient from the EHR's FHIR API.
 test.describe('opened from the EHR', () => {
-  let clinician: Clinician | null = null
-  let patient: ChartPatient
-
-  test.beforeAll(async () => {
-    const missing = await localEhrMissing()
-    test.skip(!!missing, `Needs the local Tiro EHR stack: ${missing}`)
-    patient = await patientWithEncounters()
-  })
-
-  test.afterEach(async () => {
-    if (clinician) await deleteClinician(clinician)
-    clinician = null
-  })
-
-  async function openFromChart(page: Page) {
-    clinician = await createClinician()
-    await signInWithSecondFactor(page, clinician)
-    const app = await launchFromChart(page, patient.id)
-    await app.waitForURL('http://localhost:3001/', { timeout: 60_000 })
-    return app
-  }
-
   /** Records which access token each request to the EHR's FHIR API carried. */
   function fhirTokens(app: Page) {
     const tokens: string[] = []
@@ -50,9 +17,10 @@ test.describe('opened from the EHR', () => {
   }
 
   test('the app shows the patient it was opened for and their encounters, read straight from the EHR', async ({
-    page,
+    openFromChart,
+    chartPatient: patient,
   }) => {
-    const app = await openFromChart(page)
+    const app = await openFromChart()
     const patientRead = app.waitForRequest(
       (req) =>
         req.url().startsWith(FACADE_URL) && /\/Patient\//.test(req.url()),
@@ -90,13 +58,14 @@ test.describe('opened from the EHR', () => {
   })
 
   test('the clinician’s setting is kept: on this device until the EHR offers App State', async ({
-    page,
+    openFromChart,
+    chartPatient: patient,
   }) => {
     const { capabilities } = await discovery()
     const inEhr =
       capabilities.includes('smart-app-state') &&
       capabilities.includes('sso-openid-connect')
-    const app = await openFromChart(page)
+    const app = await openFromChart()
     const rows = app
       .getByRole('list', { name: 'Encounters' })
       .getByRole('listitem')
@@ -114,9 +83,11 @@ test.describe('opened from the EHR', () => {
   })
 
   test('the app survives token refreshes: the EHR refuses a token, the app gets a new one', async ({
-    page,
+    openFromChart,
+    chartPatient: patient,
+    clinicians,
   }) => {
-    const app = await openFromChart(page)
+    const app = await openFromChart()
     await expect(app.getByTestId('patient-name')).toContainText(patient.family)
     const tokens = fhirTokens(app)
 
@@ -136,20 +107,22 @@ test.describe('opened from the EHR', () => {
     const distinct = [...new Set(tokens)]
     expect(distinct.length, 'one token per refresh, plus the first').toBe(3)
     // The EHR rotated the refresh token twice and the sign-in is still live.
-    expect(await grantOf(clinician!)).toMatchObject({
+    expect(await grantOf(clinicians[0])).toMatchObject({
       revoked: false,
       refreshes: 2,
     })
   })
 
-  test('App State is saved in the EHR for the clinician', async ({ page }) => {
+  test('App State is saved in the EHR for the clinician', async ({
+    openFromChart,
+  }) => {
     const { capabilities } = await discovery()
     test.skip(
       !capabilities.includes('smart-app-state') ||
         !capabilities.includes('sso-openid-connect'),
       'The EHR does not advertise smart-app-state and sso-openid-connect yet (Tiro-health/ehr#2761, #2763).',
     )
-    const app = await openFromChart(page)
+    const app = await openFromChart()
     await app.getByRole('button', { name: '10' }).click()
     await expect(app.getByTestId('setting-saved')).toHaveText(
       'Saved in the EHR for you',
