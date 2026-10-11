@@ -112,7 +112,7 @@ export async function deleteClinician(clinician: Clinician) {
       const [{ appState }] = await tx<{ appState: string | null }[]>`
         select to_regclass('public.smart_app_state')::text as "appState"`
       if (appState)
-        await tx`delete from public.smart_app_state where practitioner_id = ${clinician.id} or created_by in (${appActors}) or updated_by in (${appActors})`
+        await tx`delete from public.smart_app_state where created_by in (${appActors}) or updated_by in (${appActors})`
       await tx`delete from public.actor where id in (${appActors})`
       await tx`delete from public.profile where id = ${clinician.id}`
       await tx`delete from public.actor where practitioner_id = ${clinician.id}`
