@@ -38,12 +38,17 @@ export async function testKey(): Promise<PrivateJwk> {
   return { ...jwk, kid: 'test-key', alg: 'ES384' }
 }
 
+/**
+ * Settings for a test launch. The scopes are fixed, not app.config.ts's, so tests keep their
+ * meaning when the app asks for more; a test that needs more passes `{ ...settings, scopes }`.
+ */
 export async function testSettings(): Promise<SmartSettings> {
   return {
     clientId: CLIENT_ID,
     privateJwk: await testKey(),
     allowedIssuers: [ISS],
     appUrl: APP_URL,
+    scopes: ['patient/Patient.rs', 'patient/Encounter.rs', 'offline_access'],
   }
 }
 

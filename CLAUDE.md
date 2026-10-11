@@ -73,7 +73,9 @@ src/
 - **New page**: create `src/routes/<name>.tsx` that renders a component from `src/pages/<name>.tsx`.
   Add a link in the header in `src/routes/__root.tsx`. The route tree regenerates on its own.
 - **UI**: use the shadcn components in `src/components/ui/` before writing custom markup. Add
-  missing ones with the shadcn CLI, never by hand. Never edit files in `src/components/ui/`.
+  missing ones with the shadcn CLI, never by hand. Never edit files in `src/components/ui/`, with
+  one exception: the CLI sometimes writes `import { cn } from "cn"` and adds a `cn` package. Point
+  the import at `@/lib/utils` and run `pnpm remove cn`.
 - **Imports**: use the `@/` alias for anything under `src/`.
 - **Saving data**: use `useAppState(key, initial, { parse })` from `@/hooks/use-app-state` like
   `useState`. Keys are short lowercase names (`click-count`). Values must be JSON and stay well

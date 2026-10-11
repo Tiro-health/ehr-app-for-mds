@@ -75,6 +75,28 @@ export async function searchEncounters(
   )
 }
 
+/** The patient's documents, most recent first. Needs `patient/DocumentReference.rs`. */
+export async function searchDocuments(
+  client: EhrClient,
+): Promise<DocumentReference[]> {
+  const documents = await search(client, 'DocumentReference')
+  return documents.sort((a, b) =>
+    (documentDay(b) ?? '').localeCompare(documentDay(a) ?? ''),
+  )
+}
+
+/**
+ * The day a document was made, or else filed (YYYY-MM-DD, or a longer dateTime). Documents an app
+ * files have no `date` of their own: the EHR refuses one.
+ */
+export function documentDay(document: DocumentReference) {
+  return (
+    document.content[0]?.attachment?.creation ??
+    document.date ??
+    document.meta?.lastUpdated
+  )
+}
+
 /** The EHR's code system for document kinds (`Brief`, `Labo`, ...). */
 export const DOCUMENT_KIND_SYSTEM = 'urn:tv:document-kind'
 

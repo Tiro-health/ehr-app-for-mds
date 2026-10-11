@@ -66,7 +66,13 @@ may not do.
 ```tsx
 import { useSmart } from '@/hooks/use-smart'
 import { useEhrData, useEncounters, usePatient } from '@/hooks/use-fhir'
-import { createDocumentReference, formatName, search } from '@/lib/fhir'
+import {
+  createDocumentReference,
+  documentDay,
+  formatName,
+  search,
+  searchDocuments,
+} from '@/lib/fhir'
 import { formatDate } from '@/lib/format'
 import type { EhrClient } from '@/lib/smart/client'
 import type { Encounter } from 'fhir/r4' // FHIR types: always from fhir/r4, never hand-written
@@ -79,7 +85,9 @@ import type { Encounter } from 'fhir/r4' // FHIR types: always from fhir/r4, nev
 | 'ready', data }`. Encounters come most recent first. Handle every status: `unavailable`
   means the app was not opened from a chart.
 - Other reads: `useEhrData(load)` with a stable `load` (module-level or `useCallback`), e.g.
-  `const letters = (client: EhrClient) => search(client, 'DocumentReference', {})`.
+  `useEhrData(searchDocuments)` for the patient's documents (needs `patient/DocumentReference.rs`;
+  show `documentDay(doc)`, since documents an app files carry no `date`), or
+  `(client: EhrClient) => search(client, 'Encounter', { status: 'planned' })`.
 - Writes go in event handlers: `await client.json('Encounter/' + id, { method: 'PUT', headers:
 { 'Content-Type': 'application/fhir+json', 'If-Match': `W/"${e.meta?.versionId}"` }, body:
 JSON.stringify(e) })`. Show the EHR's refusal (`EhrError.message`) to the clinician.
@@ -130,7 +138,9 @@ initial, { parse })`. It is saved in the EHR for that clinician once the EHR off
   )
   ```
 
-  Imports: `fakeEhr`, `launchInFakeEhr`, `testSettings` from `@/lib/smart/fake-ehr`. See
+  Imports: `fakeEhr`, `launchInFakeEhr`, `testSettings` from `@/lib/smart/fake-ehr`.
+  `testSettings()` asks for Patient and Encounter reads only; a test of a feature that needs more
+  passes `{ ...settings, scopes: [...] }`, so the fake EHR refuses what the real one would. See
   `src/pages/home.test.tsx` and `src/lib/fhir.test.ts`.
 
 - **End-to-end** against the local EHR (`e2e/`, run with `pnpm test:e2e`): every feature that
@@ -152,7 +162,9 @@ initial, { parse })`. It is saved in the EHR for that clinician once the EHR off
 
   `chartPatient` has `id`, `given`, `family`, `birthDate`, `gender`, `encounters` (count) and
   `latestEncounter` (`YYYY-MM-DD`). For other checks, read the EHR's database the way
-  `e2e/support/local-ehr.ts` does. The tests skip with the reason when the stack is not running;
+  `e2e/support/local-ehr.ts` does. The fixture removes the clinician afterwards, with the
+  documents and encounters the app created for them; if a feature writes another kind of record,
+  extend `deleteClinician()` so the test cleans up after itself. The tests skip with the reason when the stack is not running;
   a skipped test is not a passed one, so say so if it happened.
 
 ## Running it against the local EHR
