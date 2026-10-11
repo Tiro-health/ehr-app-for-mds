@@ -175,7 +175,8 @@ http://localhost:3000, its FHIR API at http://localhost:8090, clinics `tonnard-v
 `dev-smart-app` (launch http://localhost:3001/smart/launch, redirect
 http://localhost:3001/smart/callback) and approves it in every clinic.
 
-1. `cp .env.example .env` if `.env` is missing, and put the dev client's private key in
+1. `cp .env.example .env` if `.env` is missing (its `SMART_ISS=http://localhost:8090/t/` admits
+   every clinic of the stack), and put the dev client's private key in
    `SMART_PRIVATE_JWK` (one line of JSON from the EHR repo's
    `.local-stack/smart-dev-client/private.jwk.json`) and a random `SESSION_SECRET`
    (`openssl rand -hex 32`). Never commit `.env`.
@@ -190,5 +191,6 @@ with the fake EHR still cover the feature.
 ## Live
 
 On tirohealth.app the server needs `SMART_CLIENT_ID`, `SMART_PRIVATE_JWK`, `SMART_ISS`, `APP_URL`
-and `SESSION_SECRET`; Tiro sets them when it registers the app with the EHR. The EHR fetches the
+and `SESSION_SECRET` (and `SMART_PUBLIC_JWKS` during a key rotation); Tiro sets them when it
+registers the app with the EHR. `SMART_ISS` is a prefix ending in `/` that admits every clinic. The EHR fetches the
 app's public key from `https://<app>.tirohealth.app/.well-known/jwks.json`.
