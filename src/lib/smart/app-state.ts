@@ -10,7 +10,8 @@
 export type AppStateTarget = {
   /** Base URL of the App State FHIR endpoint (may differ from the main FHIR server). */
   endpoint: string
-  accessToken: string
+  /** fetch() that adds the access token, e.g. EhrClient.fetch. */
+  fetch: (url: string, init?: RequestInit) => Promise<Response>
   /** Code system for the state codes. The app's own origin, as the spec recommends. */
   system: string
   /** Absolute reference to the subject, e.g. https://ehr.example.org/fhir/Practitioner/123 */
@@ -39,8 +40,6 @@ type Basic = {
   extension?: { url: string; valueString?: string }[]
 }
 
-type Fetch = typeof fetch
-
 const MAX_BYTES = 256 * 1024
 
 export function valueExtensionUrl(system: string) {
@@ -50,12 +49,11 @@ export function valueExtensionUrl(system: string) {
 export async function readState(
   target: AppStateTarget,
   code: string,
-  fetchImpl: Fetch = fetch,
 ): Promise<StoredState | null> {
   const url = new URL(`${base(target)}/Basic`)
   url.searchParams.set('code', `${target.system}|${code}`)
   url.searchParams.set('subject', target.subject)
-  const res = await fetchImpl(url, { headers: headers(target) })
+  const res = await target.fetch(url.toString(), { headers: HEADERS })
   await expectOk(res, 'read app state')
   const bundle = (await res.json()) as { entry?: { resource?: Basic }[] }
   const match = (bundle.entry ?? [])
@@ -80,7 +78,6 @@ export async function writeState(
   code: string,
   value: Json,
   current: { id: string; version: string } | null,
-  fetchImpl: Fetch = fetch,
 ): Promise<SaveResult> {
   const resource: Basic = {
     resourceType: 'Basic',
@@ -100,22 +97,22 @@ export async function writeState(
   }
 
   const res = current
-    ? await fetchImpl(
+    ? await target.fetch(
         `${base(target)}/Basic/${encodeURIComponent(current.id)}`,
         {
           method: 'PUT',
           headers: {
-            ...headers(target),
+            ...HEADERS,
             'Content-Type': 'application/fhir+json',
             'If-Match': etag(current.version),
           },
           body,
         },
       )
-    : await fetchImpl(`${base(target)}/Basic`, {
+    : await target.fetch(`${base(target)}/Basic`, {
         method: 'POST',
         headers: {
-          ...headers(target),
+          ...HEADERS,
           'Content-Type': 'application/fhir+json',
           Prefer: 'return=representation',
         },
@@ -125,11 +122,11 @@ export async function writeState(
   if (res.status === 412 || res.status === 409) {
     return {
       status: 'conflict',
-      state: await readState(target, code, fetchImpl),
+      state: await readState(target, code),
     }
   }
   await expectOk(res, 'save app state')
-  const saved = await savedResource(res, resource, target, fetchImpl)
+  const saved = await savedResource(res, resource, target)
   return { status: 'saved', state: toStored(saved, target.system, res) }
 }
 
@@ -137,12 +134,7 @@ function base(target: AppStateTarget) {
   return target.endpoint.replace(/\/$/, '')
 }
 
-function headers(target: AppStateTarget) {
-  return {
-    Authorization: `Bearer ${target.accessToken}`,
-    Accept: 'application/fhir+json',
-  }
-}
+const HEADERS = { Accept: 'application/fhir+json' }
 
 function etag(version: string) {
   return `W/"${version}"`
@@ -153,7 +145,6 @@ async function savedResource(
   res: Response,
   sent: Basic,
   target: AppStateTarget,
-  fetchImpl: Fetch,
 ): Promise<Basic> {
   const text = await res.text()
   if (text) return JSON.parse(text) as Basic
@@ -161,8 +152,8 @@ async function savedResource(
     res.headers.get('Location') ?? res.headers.get('Content-Location')
   const id = location?.match(/Basic\/([^/]+)/)?.[1] ?? sent.id
   if (!id) throw new Error('The EHR did not say where it saved the app state.')
-  const read = await fetchImpl(`${base(target)}/Basic/${id}`, {
-    headers: headers(target),
+  const read = await target.fetch(`${base(target)}/Basic/${id}`, {
+    headers: HEADERS,
   })
   await expectOk(read, 'read saved app state')
   return (await read.json()) as Basic

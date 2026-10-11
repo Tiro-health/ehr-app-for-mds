@@ -4,63 +4,71 @@ import {
   valueExtensionUrl,
   type AppStateTarget,
 } from './app-state'
-import { APP_STATE, fakeEhr } from './fake-ehr'
+import {
+  APP_STATE,
+  ISS,
+  fakeEhr,
+  launchedClient,
+  testSettings,
+} from './fake-ehr'
 
-const target: AppStateTarget = {
-  endpoint: APP_STATE,
-  accessToken: 'token',
-  system: 'https://my-app.tirohealth.app',
-  subject: 'https://ehr.example.org/fhir/Practitioner/123',
+const system = 'https://my-app.tirohealth.app'
+
+async function setup() {
+  const settings = await testSettings()
+  const ehr = fakeEhr(settings, { openid: true, appState: 'associated' })
+  const client = await launchedClient(ehr, settings, 'p1')
+  const target: AppStateTarget = {
+    endpoint: client.appStateEndpoint!,
+    fetch: (url, init) => client.fetch(url, init),
+    system,
+    subject: client.fhirUser!,
+  }
+  return { ehr, target }
+}
+
+function storedBasic(ehr: ReturnType<typeof fakeEhr>) {
+  return [...ehr.resources.values()].find((r) => r.resourceType === 'Basic')!
 }
 
 test('creates, reads and updates state for the signed-in practitioner', async () => {
-  const ehr = fakeEhr({ associatedEndpoint: true })
-  expect(await readState(target, 'click-count', ehr.fetch)).toBeNull()
+  const { ehr, target } = await setup()
+  expect(target.endpoint).toBe(APP_STATE)
+  expect(target.subject).toBe(`${ISS}/Practitioner/123`)
+  expect(await readState(target, 'click-count')).toBeNull()
 
-  const created = await writeState(target, 'click-count', 1, null, ehr.fetch)
+  const created = await writeState(target, 'click-count', 1, null)
   expect(created).toMatchObject({
     status: 'saved',
-    state: { value: 1, version: 'a' },
+    state: { value: 1, version: '1' },
   })
 
-  const stored = [...ehr.store.values()][0]
-  expect(stored.code.coding).toEqual([
-    { system: 'https://my-app.tirohealth.app', code: 'click-count' },
-  ])
+  const stored = storedBasic(ehr)
+  expect(stored.code).toEqual({
+    coding: [{ system, code: 'click-count' }],
+  })
   expect(stored.subject).toEqual({ reference: target.subject })
   expect(stored.extension).toEqual([
-    { url: valueExtensionUrl(target.system), valueString: '1' },
+    { url: valueExtensionUrl(system), valueString: '1' },
   ])
 
-  const read = await readState(target, 'click-count', ehr.fetch)
-  expect(read).toMatchObject({ value: 1, version: 'a' })
+  const read = await readState(target, 'click-count')
+  expect(read).toMatchObject({ value: 1, version: '1' })
 
-  const updated = await writeState(target, 'click-count', 2, read, ehr.fetch)
+  const updated = await writeState(target, 'click-count', 2, read)
   expect(updated).toMatchObject({
     status: 'saved',
-    state: { value: 2, version: 'b' },
+    state: { value: 2, version: '2' },
   })
 })
 
 test('a stale version is a conflict that returns the latest state', async () => {
-  const ehr = fakeEhr({ associatedEndpoint: true })
-  const first = await writeState(
-    target,
-    'notes',
-    { text: 'a' },
-    null,
-    ehr.fetch,
-  )
+  const { target } = await setup()
+  const first = await writeState(target, 'notes', { text: 'a' }, null)
   if (first.status !== 'saved') throw new Error('expected saved')
-  await writeState(target, 'notes', { text: 'b' }, first.state, ehr.fetch)
+  await writeState(target, 'notes', { text: 'b' }, first.state)
 
-  const stale = await writeState(
-    target,
-    'notes',
-    { text: 'c' },
-    first.state,
-    ehr.fetch,
-  )
+  const stale = await writeState(target, 'notes', { text: 'c' }, first.state)
   expect(stale).toMatchObject({
     status: 'conflict',
     state: { value: { text: 'b' } },
@@ -68,30 +76,26 @@ test('a stale version is a conflict that returns the latest state', async () => 
 })
 
 test('state of another practitioner is not returned', async () => {
-  const ehr = fakeEhr({ associatedEndpoint: true })
-  await writeState(target, 'click-count', 5, null, ehr.fetch)
-  const other = {
-    ...target,
-    subject: 'https://ehr.example.org/fhir/Practitioner/999',
-  }
-  expect(await readState(other, 'click-count', ehr.fetch)).toBeNull()
+  const { target } = await setup()
+  await writeState(target, 'click-count', 5, null)
+  const other = { ...target, subject: `${ISS}/Practitioner/999` }
+  expect(await readState(other, 'click-count')).toBeNull()
 })
 
 test('unreadable stored content is ignored, not thrown', async () => {
-  const ehr = fakeEhr({ associatedEndpoint: true })
-  await writeState(target, 'click-count', 1, null, ehr.fetch)
-  const stored = [...ehr.store.values()][0]
-  stored.extension = [
-    { url: valueExtensionUrl(target.system), valueString: '{not json' },
+  const { ehr, target } = await setup()
+  await writeState(target, 'click-count', 1, null)
+  storedBasic(ehr).extension = [
+    { url: valueExtensionUrl(system), valueString: '{not json' },
   ]
-  expect(await readState(target, 'click-count', ehr.fetch)).toMatchObject({
+  expect(await readState(target, 'click-count')).toMatchObject({
     value: undefined,
   })
 })
 
 test('refuses state above the 256 KB limit', async () => {
-  const ehr = fakeEhr({ associatedEndpoint: true })
+  const { target } = await setup()
   await expect(
-    writeState(target, 'big', 'x'.repeat(300 * 1024), null, ehr.fetch),
+    writeState(target, 'big', 'x'.repeat(300 * 1024), null),
   ).rejects.toThrow('256 KB')
 })

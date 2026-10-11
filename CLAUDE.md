@@ -39,9 +39,9 @@ clinical tools with Claude Code. The person you are working with is a medical do
 
 Pages are rendered on a small Node server (built by Nitro into `.output/`) and then take over in
 the browser. The server keeps no data of its own. When the EHR launches the app (SMART on FHIR,
-`/smart/launch`), the server signs in as a confidential client, keeps the sign-in in an encrypted
-cookie, and relays saved data to the EHR as SMART App State. Without a launch, saved data stays in
-the browser.
+`/smart/launch`), the server signs in to the EHR with the app's private key and keeps the sign-in
+in an encrypted cookie. The browser then gets a short-lived access token and reads and writes the
+patient's data in the EHR directly; patient data never passes through the app's server.
 
 ## Layout
 
@@ -54,8 +54,8 @@ src/
   pages/               The actual page content, one file per page, plus its test.
   components/          Reusable pieces built for this app.
   components/ui/       shadcn components. Add more with `pnpm dlx shadcn@latest add <name>`.
-  hooks/               React hooks. use-app-state.ts saves data (EHR or browser).
-  lib/                 Helpers. lib/smart/ is the SMART launch and App State client.
+  hooks/               React hooks. use-smart.tsx is the EHR connection, use-app-state.ts saves data.
+  lib/                 Helpers. lib/smart/ is the SMART launch, the EHR client and App State.
 ```
 
 ## Conventions
@@ -72,7 +72,8 @@ src/
   observations, patient registries). The SMART spec forbids that.
 - **Browser-only code**: pages also render on the server, where `window`, `localStorage` and
   IndexedDB do not exist. Touch them only in `useEffect` or event handlers, never while rendering.
-  Do not add other server functions that store or receive patient data.
+  Do not add server functions that store, receive or relay patient data: read it in the browser
+  with `useSmart()`.
 - **State**: React state in the page. No global state library unless a skill introduces one.
 - **Tests**: every page gets a small test next to it that renders it and checks the heading.
   Clinical calculations get unit tests with the reference values from the source publication.
@@ -86,8 +87,9 @@ src/
 
 ```
 pnpm install     install dependencies (once)
-pnpm dev         local preview at http://localhost:3000
+pnpm dev         local preview at http://localhost:3001 (the local EHR uses 3000)
 pnpm check       types, lint, format, tests
+pnpm test:e2e    end-to-end tests in a real browser (EHR launch tests need the local EHR stack)
 pnpm format      auto-fix formatting and lint
 pnpm build       production build into .output/
 pnpm start       run the production build at http://localhost:3000
@@ -95,16 +97,18 @@ pnpm start       run the production build at http://localhost:3000
 
 ## EHR launch settings
 
-The server reads these from its environment. Without them the app still works and saves in the
+The server reads these from its environment (locally from `.env`, see `.env.example`). Without
+them the app still works, shows that it was not opened from a patient's chart, and saves in the
 browser.
 
-| Variable              | What it is                                                     |
-| --------------------- | -------------------------------------------------------------- |
-| `SMART_CLIENT_ID`     | The app's client id at the EHR                                 |
-| `SMART_CLIENT_SECRET` | The app's client secret (confidential client)                  |
-| `SMART_ISS`           | FHIR base URL(s) the app may be launched from, comma-separated |
-| `APP_URL`             | Public address, e.g. `https://<app>.tirohealth.app`            |
-| `SESSION_SECRET`      | At least 32 random characters, encrypts the sign-in cookie     |
-| `SMART_SCOPE`         | Optional, default `openid fhirUser launch user/Basic.cruds`    |
+| Variable            | What it is                                                            |
+| ------------------- | --------------------------------------------------------------------- |
+| `SMART_CLIENT_ID`   | The app's client id at the EHR                                        |
+| `SMART_PRIVATE_JWK` | The app's private key (ES384 or RS384 JWK, one line of JSON). Secret. |
+| `SMART_ISS`         | Clinic FHIR bases the app may be launched from, comma-separated       |
+| `APP_URL`           | Public address, e.g. `https://<app>.tirohealth.app`                   |
+| `SESSION_SECRET`    | At least 32 random characters, encrypts the sign-in cookie. Secret.   |
 
-Register `APP_URL/smart/launch` as the launch URL and `APP_URL/smart/callback` as the redirect.
+The EHR registers `APP_URL/smart/launch` as the launch URL, `APP_URL/smart/callback` as the
+redirect, and `APP_URL/.well-known/jwks.json` as the app's public key. What the app asks to read
+and write is `ehr.scopes` in `src/app.config.ts`.

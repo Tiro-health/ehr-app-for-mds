@@ -2,13 +2,19 @@
 import { useSession as openSession } from '@tanstack/react-start/server'
 import type { Connection, PendingLaunch } from './launch'
 
-type SmartSession = { pending?: PendingLaunch; connection?: Connection }
+type SmartSession = {
+  pending?: PendingLaunch
+  connection?: Connection
+  /** Why the last launch failed, shown once on the home page. */
+  launchError?: string
+}
 
 /**
- * The SMART sign-in lives in an encrypted, httpOnly cookie, so the server itself keeps no
- * data. SameSite=None lets the cookie survive an EHR that shows the app inside a frame.
+ * The SMART sign-in lives in an encrypted, httpOnly cookie, so the server itself keeps no data.
+ * SameSite=Lax: the EHR opens the app in a new tab, a top-level navigation that carries the
+ * cookie, while another site's requests (forms, fetches) do not.
  */
-export function smartSession() {
+export function smartSession(appUrl: string) {
   const password = process.env.SESSION_SECRET
   if (!password || password.length < 32) {
     throw new Error('SESSION_SECRET must be set to at least 32 characters.')
@@ -17,6 +23,11 @@ export function smartSession() {
     name: 'smart',
     password,
     maxAge: 60 * 60 * 12,
-    cookie: { httpOnly: true, secure: true, sameSite: 'none', path: '/' },
+    cookie: {
+      httpOnly: true,
+      secure: appUrl.startsWith('https://'),
+      sameSite: 'lax',
+      path: '/',
+    },
   })
 }

@@ -1,74 +1,114 @@
 /**
- * SMART on FHIR launch as a confidential client: discovery, the authorization redirect and
- * the code exchange. Runs on the server only; the client secret never reaches the browser.
+ * SMART on FHIR launch as a confidential client: discovery, the authorization redirect, the code
+ * exchange and the refresh. Runs on the server only; the private key never reaches the browser.
  * https://hl7.org/fhir/smart-app-launch/app-launch.html
+ *
+ * The browser gets the short-lived access token (see connection.functions.ts) and reads the
+ * patient's data from the EHR itself. This server never sees patient data.
  */
+import { appConfig } from '@/app.config'
+import {
+  clientAssertion,
+  fromBase64Url,
+  parsePrivateJwk,
+  toBase64Url,
+} from './keys'
+import type { PrivateJwk } from './keys'
 
 export type SmartSettings = {
   clientId: string
-  clientSecret: string
+  privateJwk: PrivateJwk
   /** FHIR base URLs this app may be launched from. Anything else is refused. */
   allowedIssuers: string[]
   /** Public origin of this app, e.g. https://my-app.tirohealth.app */
   appUrl: string
-  scope: string
 }
 
 export type SmartConfiguration = {
-  authorization_endpoint: string
-  token_endpoint: string
+  authorization_endpoint?: string
+  token_endpoint?: string
+  token_endpoint_auth_methods_supported?: string[]
   capabilities?: string[]
   associated_endpoints?: { url: string; capabilities?: string[] }[]
 }
 
+export type Discovery = {
+  authorizationEndpoint: string
+  tokenEndpoint: string
+  capabilities: string[]
+  /** Where SMART App State lives, when the EHR offers it. */
+  appStateEndpoint: string | null
+}
+
+/** What the server keeps between the redirect to the EHR and the callback. */
 export type PendingLaunch = {
   state: string
   verifier: string
   iss: string
   tokenEndpoint: string
-  appStateEndpoint: string
+  appStateEndpoint: string | null
 }
 
+/** The sign-in, kept in the encrypted session cookie. */
 export type Connection = {
+  /** The FHIR base the app was launched from (the clinic's tenant base). */
   iss: string
-  appStateEndpoint: string
   tokenEndpoint: string
   accessToken: string
   refreshToken?: string
   /** Epoch seconds. */
   expiresAt: number
-  /** Absolute reference to the signed-in user (Practitioner, PractitionerRole, ...). */
-  fhirUser: string
+  scope: string
+  patient?: string
+  encounter?: string
+  /** Absolute reference to the signed-in clinician, when the EHR says who it is. */
+  fhirUser?: string
+  appStateEndpoint?: string
 }
-
-const DEFAULT_SCOPE = 'openid fhirUser launch user/Basic.cruds'
 
 export const CALLBACK_PATH = '/smart/callback'
 
-/** Returns null when the deploy has no SMART settings: the app then saves on the device. */
+/** Refresh this many seconds before the access token runs out. */
+const EXPIRY_MARGIN = 60
+
+/**
+ * Returns null when the deploy has no SMART settings: the app then runs without an EHR.
+ * A half-finished configuration is reported once in the server log.
+ */
 export function readSettings(env = process.env): SmartSettings | null {
-  const clientId = env.SMART_CLIENT_ID
-  const clientSecret = env.SMART_CLIENT_SECRET
-  const issuers = env.SMART_ISS
-  const appUrl = env.APP_URL
-  if (!clientId || !clientSecret || !issuers || !appUrl) return null
+  const values = {
+    SMART_CLIENT_ID: env.SMART_CLIENT_ID,
+    SMART_PRIVATE_JWK: env.SMART_PRIVATE_JWK,
+    SMART_ISS: env.SMART_ISS,
+    APP_URL: env.APP_URL,
+  }
+  const missing = Object.entries(values)
+    .filter(([, v]) => !v?.trim())
+    .map(([k]) => k)
+  if (missing.length === Object.keys(values).length) return null
+  if (missing.length) {
+    warnOnce(`SMART is half configured; missing ${missing.join(', ')}.`)
+    return null
+  }
   return {
-    clientId,
-    clientSecret,
-    allowedIssuers: issuers.split(',').map(normalizeBase).filter(Boolean),
-    appUrl: appUrl.replace(/\/$/, ''),
-    scope: env.SMART_SCOPE || DEFAULT_SCOPE,
+    clientId: values.SMART_CLIENT_ID!.trim(),
+    privateJwk: parsePrivateJwk(values.SMART_PRIVATE_JWK!),
+    allowedIssuers: values
+      .SMART_ISS!.split(',')
+      .map(normalizeBase)
+      .filter(Boolean),
+    appUrl: normalizeBase(values.APP_URL!),
   }
 }
 
 export function normalizeBase(url: string) {
-  return url.trim().replace(/\/$/, '')
+  return url.trim().replace(/\/+$/, '')
 }
 
 export async function discover(
   iss: string,
   fetchImpl: typeof fetch = fetch,
-): Promise<{ config: SmartConfiguration; appStateEndpoint: string }> {
+): Promise<Discovery> {
   const res = await fetchImpl(`${iss}/.well-known/smart-configuration`, {
     headers: { Accept: 'application/json' },
   })
@@ -81,16 +121,19 @@ export async function discover(
       "The EHR's SMART configuration has no authorization endpoints.",
     )
   }
-  const appStateEndpoint = findAppStateEndpoint(iss, config)
-  if (!appStateEndpoint) {
-    throw new Error(
-      'This EHR does not support SMART App State (smart-app-state).',
-    )
+  const methods = config.token_endpoint_auth_methods_supported
+  if (methods && !methods.includes('private_key_jwt')) {
+    throw new Error('The EHR does not accept private_key_jwt sign-in.')
   }
-  return { config, appStateEndpoint }
+  return {
+    authorizationEndpoint: config.authorization_endpoint,
+    tokenEndpoint: config.token_endpoint,
+    capabilities: config.capabilities ?? [],
+    appStateEndpoint: findAppStateEndpoint(iss, config),
+  }
 }
 
-/** The main FHIR server, or an associated endpoint that advertises smart-app-state. */
+/** The FHIR server itself, or an associated endpoint that advertises smart-app-state. */
 export function findAppStateEndpoint(iss: string, config: SmartConfiguration) {
   const associated = config.associated_endpoints?.find((e) =>
     e.capabilities?.includes('smart-app-state'),
@@ -98,6 +141,26 @@ export function findAppStateEndpoint(iss: string, config: SmartConfiguration) {
   if (associated) return normalizeBase(associated.url)
   if (config.capabilities?.includes('smart-app-state')) return iss
   return null
+}
+
+/**
+ * The scopes to ask for. The app's own data scopes come from app.config.ts; who is signed in
+ * (`openid fhirUser`) and App State (`user/Basic.cruds`) are only asked for when the EHR says it
+ * offers them, because an EHR may refuse scopes it does not serve.
+ */
+export function scopeFor(
+  discovery: Discovery,
+  kind: 'ehr' | 'standalone',
+  dataScopes: readonly string[] = appConfig.ehr.scopes,
+) {
+  const identity = discovery.capabilities.includes('sso-openid-connect')
+  const scopes = [
+    kind === 'ehr' ? 'launch' : 'launch/patient',
+    ...dataScopes,
+    ...(identity ? ['openid', 'fhirUser'] : []),
+    ...(identity && discovery.appStateEndpoint ? ['user/Basic.cruds'] : []),
+  ]
+  return [...new Set(scopes)].join(' ')
 }
 
 export async function startLaunch(
@@ -109,22 +172,16 @@ export async function startLaunch(
   if (!settings.allowedIssuers.includes(iss)) {
     throw new LaunchError(`This app may not be launched from ${iss}.`)
   }
-  const { config, appStateEndpoint } = await discover(iss, fetchImpl)
+  const discovery = await discover(iss, fetchImpl)
   const state = randomToken()
   const verifier = randomToken()
-  const scope = params.launch
-    ? settings.scope
-    : settings.scope
-        .split(/\s+/)
-        .filter((s) => s && s !== 'launch')
-        .join(' ')
 
-  const url = new URL(config.authorization_endpoint)
+  const url = new URL(discovery.authorizationEndpoint)
   url.search = new URLSearchParams({
     response_type: 'code',
     client_id: settings.clientId,
     redirect_uri: settings.appUrl + CALLBACK_PATH,
-    scope,
+    scope: scopeFor(discovery, params.launch ? 'ehr' : 'standalone'),
     state,
     aud: iss,
     code_challenge: await challenge(verifier),
@@ -138,8 +195,8 @@ export async function startLaunch(
       state,
       verifier,
       iss,
-      tokenEndpoint: config.token_endpoint,
-      appStateEndpoint,
+      tokenEndpoint: discovery.tokenEndpoint,
+      appStateEndpoint: discovery.appStateEndpoint,
     },
   }
 }
@@ -147,11 +204,22 @@ export async function startLaunch(
 export async function finishLaunch(
   settings: SmartSettings,
   pending: PendingLaunch,
-  params: { code?: string; state?: string; error?: string },
+  params: {
+    code?: string
+    state?: string
+    error?: string
+    errorDescription?: string
+  },
   fetchImpl: typeof fetch = fetch,
 ): Promise<Connection> {
-  if (params.error)
-    throw new LaunchError(`The EHR refused the sign-in: ${params.error}.`)
+  if (params.error) {
+    const detail = params.errorDescription
+      ? ` (${params.errorDescription})`
+      : ''
+    throw new LaunchError(
+      `The EHR refused the sign-in: ${params.error}${detail}.`,
+    )
+  }
   if (!params.code || !params.state || params.state !== pending.state) {
     throw new LaunchError(
       'The sign-in could not be verified. Open the app from the EHR again.',
@@ -169,48 +237,81 @@ export async function finishLaunch(
     fetchImpl,
   )
   const fhirUser = userReference(pending.iss, token)
-  if (!fhirUser) {
-    throw new LaunchError('The EHR did not say who is signed in (no fhirUser).')
-  }
+  const scope = token.scope ?? ''
+  const appStateEndpoint =
+    pending.appStateEndpoint && fhirUser && /\buser\/Basic\./.test(scope)
+      ? pending.appStateEndpoint
+      : undefined
   return {
     iss: pending.iss,
-    appStateEndpoint: pending.appStateEndpoint,
     tokenEndpoint: pending.tokenEndpoint,
     accessToken: token.access_token,
     refreshToken: token.refresh_token,
     expiresAt: now() + (token.expires_in ?? 300),
-    fhirUser,
+    scope,
+    ...(token.patient ? { patient: token.patient } : {}),
+    ...(token.encounter ? { encounter: token.encounter } : {}),
+    ...(fhirUser ? { fhirUser } : {}),
+    ...(appStateEndpoint ? { appStateEndpoint } : {}),
   }
 }
 
-/** Refreshes the access token shortly before it expires, when the EHR gave a refresh token. */
-export async function freshConnection(
+export function needsRefresh(connection: Connection) {
+  return connection.expiresAt - EXPIRY_MARGIN <= now()
+}
+
+/**
+ * Exchanges the refresh token for a new access token. Returns null when there is no refresh
+ * token or the EHR ended the grant: the clinician has to open the app again.
+ *
+ * The EHR rotates refresh tokens and revokes the whole grant when an old one is used twice. Two
+ * requests arriving with the same cookie must therefore share one refresh: `inFlight` keeps the
+ * answer for a minute, keyed by the refresh token it replaced.
+ */
+export async function refreshConnection(
   settings: SmartSettings,
   connection: Connection,
   fetchImpl: typeof fetch = fetch,
 ): Promise<Connection | null> {
-  if (connection.expiresAt - 30 > now()) return connection
-  if (!connection.refreshToken) return null
-  const token = await requestToken(
-    settings,
-    connection.tokenEndpoint,
-    { grant_type: 'refresh_token', refresh_token: connection.refreshToken },
-    fetchImpl,
-  )
+  const refreshToken = connection.refreshToken
+  if (!refreshToken) return null
+  let pending = inFlight.get(refreshToken)
+  if (!pending) {
+    pending = requestToken(
+      settings,
+      connection.tokenEndpoint,
+      { grant_type: 'refresh_token', refresh_token: refreshToken },
+      fetchImpl,
+    )
+    inFlight.set(refreshToken, pending)
+    setTimeout(() => inFlight.delete(refreshToken), 60_000).unref?.()
+  }
+  let token: TokenResponse
+  try {
+    token = await pending
+  } catch (error) {
+    if (error instanceof TokenError && error.status < 500) return null
+    throw error
+  }
   return {
     ...connection,
     accessToken: token.access_token,
-    refreshToken: token.refresh_token ?? connection.refreshToken,
+    refreshToken: token.refresh_token ?? refreshToken,
     expiresAt: now() + (token.expires_in ?? 300),
+    scope: token.scope ?? connection.scope,
   }
 }
+
+const inFlight = new Map<string, Promise<TokenResponse>>()
 
 type TokenResponse = {
   access_token: string
   refresh_token?: string
   expires_in?: number
+  scope?: string
   id_token?: string
-  fhirUser?: string
+  patient?: string
+  encounter?: string
 }
 
 async function requestToken(
@@ -219,20 +320,30 @@ async function requestToken(
   form: Record<string, string>,
   fetchImpl: typeof fetch,
 ): Promise<TokenResponse> {
-  const basic = btoa(
-    `${encodeURIComponent(settings.clientId)}:${encodeURIComponent(settings.clientSecret)}`,
-  )
   const res = await fetchImpl(tokenEndpoint, {
     method: 'POST',
     headers: {
-      Authorization: `Basic ${basic}`,
       'Content-Type': 'application/x-www-form-urlencoded',
       Accept: 'application/json',
     },
-    body: new URLSearchParams(form).toString(),
+    body: new URLSearchParams({
+      ...form,
+      client_assertion_type:
+        'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+      client_assertion: await clientAssertion(
+        settings.privateJwk,
+        settings.clientId,
+        tokenEndpoint,
+      ),
+    }).toString(),
   })
-  if (!res.ok)
-    throw new LaunchError(`The EHR's token endpoint answered ${res.status}.`)
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string
+      error_description?: string
+    }
+    throw new TokenError(res.status, body.error, body.error_description)
+  }
   const token = (await res.json()) as TokenResponse
   if (!token.access_token)
     throw new LaunchError('The EHR returned no access token.')
@@ -244,10 +355,9 @@ async function requestToken(
  * came straight from the token endpoint over TLS, which OpenID Connect accepts in place of
  * checking its signature (Core 3.1.3.7).
  */
-export function userReference(iss: string, token: TokenResponse) {
-  const claim = token.id_token
-    ? decodeJwt(token.id_token).fhirUser
-    : token.fhirUser
+export function userReference(iss: string, token: { id_token?: string }) {
+  if (!token.id_token) return null
+  const claim = decodeJwt(token.id_token).fhirUser
   if (typeof claim !== 'string' || !claim) return null
   return /^https?:\/\//.test(claim)
     ? claim
@@ -265,7 +375,27 @@ function decodeJwt(jwt: string): Record<string, unknown> {
   }
 }
 
+/** A launch problem the clinician can act on; its message is shown to them. */
 export class LaunchError extends Error {}
+
+export class TokenError extends LaunchError {
+  constructor(
+    readonly status: number,
+    readonly error?: string,
+    description?: string,
+  ) {
+    super(
+      `The EHR's token endpoint answered ${status}${error ? ` ${error}` : ''}${description ? `: ${description}` : ''}.`,
+    )
+  }
+}
+
+const warned = new Set<string>()
+function warnOnce(message: string) {
+  if (warned.has(message)) return
+  warned.add(message)
+  console.warn(message)
+}
 
 function now() {
   return Math.floor(Date.now() / 1000)
@@ -281,16 +411,4 @@ async function challenge(verifier: string) {
     new TextEncoder().encode(verifier),
   )
   return toBase64Url(new Uint8Array(digest))
-}
-
-function toBase64Url(bytes: Uint8Array) {
-  let binary = ''
-  for (const b of bytes) binary += String.fromCharCode(b)
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-}
-
-function fromBase64Url(text: string) {
-  const b64 = text.replace(/-/g, '+').replace(/_/g, '/')
-  const binary = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4))
-  return Uint8Array.from(binary, (c) => c.charCodeAt(0))
 }
