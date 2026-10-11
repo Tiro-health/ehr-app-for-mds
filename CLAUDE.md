@@ -103,13 +103,14 @@ The server reads these from its environment (locally from `.env`, see `.env.exam
 them the app still works, shows that it was not opened from a patient's chart, and saves in the
 browser.
 
-| Variable            | What it is                                                            |
-| ------------------- | --------------------------------------------------------------------- |
-| `SMART_CLIENT_ID`   | The app's client id at the EHR                                        |
-| `SMART_PRIVATE_JWK` | The app's private key (ES384 or RS384 JWK, one line of JSON). Secret. |
-| `SMART_ISS`         | Clinic FHIR bases the app may be launched from, comma-separated       |
-| `APP_URL`           | Public address, e.g. `https://<app>.tirohealth.app`                   |
-| `SESSION_SECRET`    | At least 32 random characters, encrypts the sign-in cookie. Secret.   |
+| Variable            | What it is                                                                                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `SMART_CLIENT_ID`   | The app's client id at the EHR                                                                                                                         |
+| `SMART_PRIVATE_JWK` | The app's private key (ES384 or RS384 JWK, one line of JSON). Secret.                                                                                  |
+| `SMART_ISS`         | FHIR bases the app may be launched from, comma-separated. An entry ending in `/` admits every clinic base below it, e.g. `https://fhir.example.org/t/` |
+| `APP_URL`           | Public address, e.g. `https://<app>.tirohealth.app`                                                                                                    |
+| `SESSION_SECRET`    | At least 32 random characters, encrypts the sign-in cookie. Secret.                                                                                    |
+| `SMART_PUBLIC_JWKS` | Optional. The public key set served at `/.well-known/jwks.json`, for key rotation. Must hold the signing key.                                          |
 
 The EHR registers `APP_URL/smart/launch` as the launch URL, `APP_URL/smart/callback` as the
 redirect, and `APP_URL/.well-known/jwks.json` as the app's public key. What the app asks to read
