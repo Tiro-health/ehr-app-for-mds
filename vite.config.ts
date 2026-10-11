@@ -7,7 +7,12 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   resolve: { tsconfigPaths: true },
   server: { port: 3001, strictPort: true },
-  plugins: [tailwindcss(), tanstackStart(), nitro(), viteReact()],
+  // The server plugins start a dev server inside Vitest that only logs errors; tests need neither.
+  plugins: [
+    tailwindcss(),
+    ...(process.env.VITEST ? [] : [tanstackStart(), nitro()]),
+    viteReact(),
+  ],
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
