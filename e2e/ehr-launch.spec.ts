@@ -103,11 +103,38 @@ test.describe('opened from the EHR', () => {
       'The EHR does not advertise smart-app-state and sso-openid-connect yet (Tiro-health/ehr#2761, #2763).',
     )
     const app = await openFromChart(page)
-    await app.getByRole('button', { name: 'Click me' }).click()
+    const click = () => app.getByRole('button', { name: 'Click me' }).click()
     await expect(app.getByText('Saved in the EHR')).toBeVisible()
+    await click()
     await expect(app.getByText('Clicked 1 time')).toBeVisible()
+    await expect(app.getByText('Saved in the EHR')).toBeVisible()
+
+    // A fresh read with nothing on the device: the value comes back from the EHR.
+    await app.evaluate(() => window.localStorage.clear())
     await app.reload()
     await expect(app.getByText('Clicked 1 time')).toBeVisible()
     await expect(app.getByText('Saved in the EHR')).toBeVisible()
+    expect(
+      await app.evaluate(() =>
+        window.localStorage.getItem('app-state:click-count'),
+      ),
+    ).toBeNull()
+
+    // A second tab saves first; this tab's save then carries a stale version, and the app
+    // shows the newer value instead of overwriting it.
+    const other = await app.context().newPage()
+    await other.goto('http://localhost:3001/')
+    await expect(other.getByText('Clicked 1 time')).toBeVisible()
+    await other.getByRole('button', { name: 'Click me' }).click()
+    await expect(other.getByText('Clicked 2 times')).toBeVisible()
+    await other.getByRole('button', { name: 'Click me' }).click()
+    await expect(other.getByText('Clicked 3 times')).toBeVisible()
+    await expect(other.getByText('Saved in the EHR')).toBeVisible()
+
+    await click()
+    await expect(
+      app.getByText('Updated elsewhere: showing the latest'),
+    ).toBeVisible()
+    await expect(app.getByText('Clicked 3 times')).toBeVisible()
   })
 })

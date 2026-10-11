@@ -61,7 +61,7 @@ export async function readState(
     .find(
       (r): r is Basic =>
         r?.resourceType === 'Basic' &&
-        r.subject?.reference === target.subject &&
+        sameReference(r.subject?.reference, target.subject, base(target)) &&
         r.code?.coding?.some(
           (c) => c.system === target.system && c.code === code,
         ),
@@ -128,6 +128,23 @@ export async function writeState(
   await expectOk(res, 'save app state')
   const saved = await savedResource(res, resource, target)
   return { status: 'saved', state: toStored(saved, target.system, res) }
+}
+
+/**
+ * FHIR servers may hand back a reference to their own resources as relative (`Practitioner/1`)
+ * even when it was written absolute; resolve it against the endpoint before comparing.
+ */
+function sameReference(
+  reference: string | undefined,
+  absolute: string,
+  endpoint: string,
+) {
+  if (!reference) return false
+  try {
+    return new URL(reference, `${endpoint}/`).href === absolute
+  } catch {
+    return false
+  }
 }
 
 function base(target: AppStateTarget) {

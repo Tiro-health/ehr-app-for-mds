@@ -99,3 +99,29 @@ test('refuses state above the 256 KB limit', async () => {
     writeState(target, 'big', 'x'.repeat(300 * 1024), null),
   ).rejects.toThrow('256 KB')
 })
+
+test('reads state back when the EHR returns the subject as a relative reference', async () => {
+  // The Tiro EHR (HAPI) stores a reference to its own Practitioner as `Practitioner/<id>`.
+  const settings = await testSettings()
+  const ehr = fakeEhr(settings, { openid: true, appState: true })
+  const client = await launchedClient(ehr, settings, 'p1')
+  const target: AppStateTarget = {
+    endpoint: client.appStateEndpoint!,
+    fetch: (url, init) => client.fetch(url, init),
+    system,
+    subject: client.fhirUser!,
+  }
+  expect(target.endpoint).toBe(ISS)
+  await writeState(target, 'click-count', 3, null)
+  expect(storedBasic(ehr).subject).toEqual({ reference: 'Practitioner/123' })
+  expect(await readState(target, 'click-count')).toMatchObject({ value: 3 })
+})
+
+test('a second create for the same state is a conflict that returns the stored state', async () => {
+  const { target } = await setup()
+  await writeState(target, 'notes', 'first', null)
+  expect(await writeState(target, 'notes', 'second', null)).toMatchObject({
+    status: 'conflict',
+    state: { value: 'first' },
+  })
+})
