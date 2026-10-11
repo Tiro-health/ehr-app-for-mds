@@ -4,7 +4,9 @@ import {
   createDocumentReference,
   formatName,
   readPatient,
+  documentDay,
   search,
+  searchDocuments,
   searchEncounters,
 } from './fhir'
 import { formatDate } from './format'
@@ -127,6 +129,31 @@ test('files a document in the patient’s record', async () => {
   })
   expect(stored).not.toHaveProperty('date')
   expect(stored).not.toHaveProperty('context')
+})
+
+test('lists the patient’s documents, most recent first, including one just filed', async () => {
+  const { ehr, client } = await setup(['patient/DocumentReference.crs'])
+  ehr.add({
+    resourceType: 'DocumentReference',
+    id: 'old',
+    status: 'current',
+    subject: { reference: 'Patient/p1' },
+    date: '2020-01-01T10:00:00Z',
+    content: [{ attachment: { title: 'old.pdf' } }],
+  })
+  await createDocumentReference(client, {
+    kind: 'referral',
+    title: 'new.pdf',
+    contentType: 'application/pdf',
+    data: new Uint8Array([1]),
+    created: '2026-10-11',
+  })
+  const documents = await searchDocuments(client)
+  expect(documents.map((d) => d.content[0].attachment.title)).toEqual([
+    'new.pdf',
+    'old.pdf',
+  ])
+  expect(documentDay(documents[1])).toBe('2020-01-01T10:00:00Z')
 })
 
 test('filing a document without the scope is refused by the EHR', async () => {
