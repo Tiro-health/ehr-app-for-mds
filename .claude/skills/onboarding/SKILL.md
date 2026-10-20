@@ -101,10 +101,19 @@ Tiro already chose the address, so there is nothing to agree and nothing to wait
 
 ## 4. Patient data, said once
 
-If the tool will record anything about real patients, say this once, in your own words, briefly:
-the app stores data only in the browser on this device, nothing leaves it, and clearing the browser
-loses it. Ask if that is acceptable for a first version. If not, suggest starting with example or
-anonymous data.
+Decide which of these the tool is:
+
+- **It works on the patient the clinician has open in the EHR** (shows or uses their details,
+  encounters or documents, or files something in their record). Load the `connect-to-ehr` skill
+  and build on it. Tell the clinician, once, in your own words: the app is opened from the
+  patient's chart in the EHR, it reads and writes the record there, and keeps nothing itself.
+  If it will write to the record, say what it will write and that Tiro has to approve that
+  access for the live EHR.
+- **It records patient information on its own, outside the EHR.** Say this once, briefly: the
+  app then stores it only in the browser on this device, nothing leaves it, and clearing the
+  browser loses it. Ask if that is acceptable for a first version; if not, suggest working from
+  the EHR instead, or example or anonymous data.
+- **No patient data** (a calculator, a reference): say nothing about it.
 
 ## 5. Set the app up
 
@@ -113,7 +122,8 @@ anonymous data.
   following `CLAUDE.md`. Replace the example content on the home page with the tool itself, or
   make the home page an index if there will clearly be several tools.
 - Write the page test. For any clinical score or formula, add unit tests with reference values
-  and cite the source in a comment.
+  and cite the source in a comment. For a tool that uses the EHR, add the tests `connect-to-ehr`
+  describes.
 - Run `pnpm check` and fix everything it reports.
 - Start `pnpm dev` and tell the clinician to open http://localhost:3001 if they are running
   locally. Ask for one round of feedback and apply it.

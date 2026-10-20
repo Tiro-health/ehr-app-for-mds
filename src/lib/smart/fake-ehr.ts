@@ -24,7 +24,10 @@ type Grant = {
   revoked: boolean
 }
 
-/** What a test launch asks for. Fixed, not app.config.ts's, so tests keep their meaning. */
+/**
+ * What a test launch asks for. The scopes are fixed, not app.config.ts's, so tests keep their
+ * meaning when the app asks for more; a test that needs more passes `{ ...settings, scopes }`.
+ */
 export type TestSettings = { scopes: string[] }
 
 export function testSettings(): TestSettings {
