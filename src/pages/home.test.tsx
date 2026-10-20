@@ -10,9 +10,9 @@ import { SmartProvider } from '@/hooks/use-smart'
 import { fakeEhr, launchInFakeEhr, testSettings } from '@/lib/smart/fake-ehr'
 import { HomePage } from './home'
 
-async function openedFromEhr(options: Parameters<typeof fakeEhr>[1] = {}) {
-  const settings = await testSettings()
-  const ehr = fakeEhr(settings, options)
+async function openedFromEhr(options: Parameters<typeof fakeEhr>[0] = {}) {
+  const settings = testSettings()
+  const ehr = fakeEhr(options)
   ehr.add(
     {
       resourceType: 'Patient',

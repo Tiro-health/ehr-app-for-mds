@@ -2,8 +2,8 @@ import { EhrDisconnected } from './client'
 import { fakeEhr, launchedClient, testSettings } from './fake-ehr'
 
 async function setup() {
-  const settings = await testSettings()
-  const ehr = fakeEhr(settings)
+  const settings = testSettings()
+  const ehr = fakeEhr()
   ehr.add(
     { resourceType: 'Patient', id: 'p1', name: [{ family: 'Peeters' }] },
     { resourceType: 'Patient', id: 'p2', name: [{ family: 'Janssens' }] },
@@ -37,10 +37,7 @@ test('many requests after expiry share one refresh, so the grant survives', asyn
   const { ehr, client } = await setup()
   ehr.expireAccessTokens()
   await Promise.all(Array.from({ length: 5 }, () => client.json('Patient/p1')))
-  const refreshes = ehr.tokenRequests.filter(
-    (f) => f.get('grant_type') === 'refresh_token',
-  )
-  expect(refreshes).toHaveLength(1)
+  expect(ehr.refreshes).toHaveLength(1)
   expect(ehr.grants()[0].revoked).toBe(false)
 })
 
