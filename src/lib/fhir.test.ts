@@ -24,8 +24,8 @@ function encounter(id: string, start: string, patient = 'p1'): Encounter {
 }
 
 async function setup(scopes?: string[]) {
-  const settings = await testSettings()
-  const ehr = fakeEhr(settings)
+  const settings = testSettings()
+  const ehr = fakeEhr()
   ehr.add(
     {
       resourceType: 'Patient',

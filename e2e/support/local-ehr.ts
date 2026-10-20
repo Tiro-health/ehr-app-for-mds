@@ -23,8 +23,25 @@ export const APP_NAME = process.env.E2E_EHR_APP_NAME ?? 'Dev SMART app'
 
 export const tenantBase = (slug = CLINIC) => `${FACADE_URL}/t/${slug}/fhir/R4`
 
+/**
+ * Why Tiro's auth proxy is not reachable through the app's dev server, or null when it is. It
+ * does the SMART sign-in; run it locally and set TIRO_AUTH_URL (see .env.example).
+ */
+export async function authProxyMissing(): Promise<string | null> {
+  try {
+    const ping = await fetch('http://localhost:3001/_tiro/auth/ping')
+    return ping.status === 204
+      ? null
+      : 'the auth proxy is not running (see .env.example)'
+  } catch (error) {
+    return `the app is not running (${String(error)})`
+  }
+}
+
 /** Why the local EHR cannot be used, or null when it is up. */
 export async function localEhrMissing(): Promise<string | null> {
+  const proxy = await authProxyMissing()
+  if (proxy) return proxy
   try {
     const discovery = await fetch(
       `${tenantBase()}/.well-known/smart-configuration`,

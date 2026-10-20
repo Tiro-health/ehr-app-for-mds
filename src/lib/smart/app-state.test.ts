@@ -15,8 +15,8 @@ import {
 const system = 'https://my-app.tirohealth.app'
 
 async function setup() {
-  const settings = await testSettings()
-  const ehr = fakeEhr(settings, { openid: true, appState: 'associated' })
+  const settings = testSettings()
+  const ehr = fakeEhr({ openid: true, appState: 'associated' })
   const client = await launchedClient(ehr, settings, 'p1')
   const target: AppStateTarget = {
     endpoint: client.appStateEndpoint!,
@@ -102,8 +102,8 @@ test('refuses state above the 256 KB limit', async () => {
 
 test('reads state back when the EHR returns the subject as a relative reference', async () => {
   // The Tiro EHR (HAPI) stores a reference to its own Practitioner as `Practitioner/<id>`.
-  const settings = await testSettings()
-  const ehr = fakeEhr(settings, { openid: true, appState: true })
+  const settings = testSettings()
+  const ehr = fakeEhr({ openid: true, appState: true })
   const client = await launchedClient(ehr, settings, 'p1')
   const target: AppStateTarget = {
     endpoint: client.appStateEndpoint!,

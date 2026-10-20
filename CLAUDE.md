@@ -46,10 +46,12 @@ clinical tools with Claude Code. The person you are working with is a medical do
 | Hosting       | tirohealth.app via the Tiro Deploy GitHub App       |
 
 Pages are rendered on a small Node server (built by Nitro into `.output/`) and then take over in
-the browser. The server keeps no data of its own. When the EHR launches the app (SMART on FHIR,
-`/smart/launch`), the server signs in to the EHR with the app's private key and keeps the sign-in
-in an encrypted cookie. The browser then gets a short-lived access token and reads and writes the
-patient's data in the EHR directly; patient data never passes through the app's server.
+the browser. The server keeps no data of its own. Opening the app from the EHR (SMART on FHIR) is
+not this app's job: on tirohealth.app, Tiro's auth proxy answers `/_tiro/*` and
+`/.well-known/jwks.json` for every app, signs in to the EHR with a key only Tiro holds, and keeps
+the sign-in. The browser asks it for a short-lived access token (`useSmart()`) and reads and
+writes the patient's data in the EHR directly; patient data never passes through the app's server.
+The app has no keys, secrets or sign-in settings, and needs none.
 
 ## Layout
 
@@ -64,8 +66,8 @@ src/
   components/ui/       shadcn components. Add more with `pnpm dlx shadcn@latest add <name>`.
   hooks/               React hooks. use-smart.tsx is the EHR connection, use-fhir.ts reads patient
                        data (usePatient, useEncounters), use-app-state.ts saves data.
-  lib/                 Helpers. lib/fhir.ts is the typed FHIR data layer; lib/smart/ is the SMART
-                       launch, the EHR client, App State and the fake EHR for tests.
+  lib/                 Helpers. lib/fhir.ts is the typed FHIR data layer; lib/smart/ is the EHR
+                       connection, the EHR client, App State and the fake EHR for tests.
 ```
 
 ## Conventions
@@ -109,21 +111,13 @@ pnpm build       production build into .output/
 pnpm start       run the production build at http://localhost:3000
 ```
 
-## EHR launch settings
+## Opening from the EHR
 
-The server reads these from its environment (locally from `.env`, see `.env.example`). Without
-them the app still works, shows that it was not opened from a patient's chart, and saves in the
-browser.
-
-| Variable            | What it is                                                                                                                                             |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `SMART_CLIENT_ID`   | The app's client id at the EHR                                                                                                                         |
-| `SMART_PRIVATE_JWK` | The app's private key (ES384 or RS384 JWK, one line of JSON). Secret.                                                                                  |
-| `SMART_ISS`         | FHIR bases the app may be launched from, comma-separated. An entry ending in `/` admits every clinic base below it, e.g. `https://fhir.example.org/t/` |
-| `APP_URL`           | Public address, e.g. `https://<app>.tirohealth.app`                                                                                                    |
-| `SESSION_SECRET`    | At least 32 random characters, encrypts the sign-in cookie. Secret.                                                                                    |
-| `SMART_PUBLIC_JWKS` | Optional. The public key set served at `/.well-known/jwks.json`, for key rotation. Must hold the signing key.                                          |
-
-The EHR registers `APP_URL/smart/launch` as the launch URL, `APP_URL/smart/callback` as the
-redirect, and `APP_URL/.well-known/jwks.json` as the app's public key. What the app asks to read
-and write is `ehr.scopes` in `src/app.config.ts`.
+- What the app asks to read and write is `ehr.scopes` in `src/app.config.ts`. The app serves it
+  at `/.well-known/tiro-app.json`, where Tiro's auth proxy reads it at every launch.
+- Never add routes under `/_tiro/` or a `/.well-known/jwks.json`: those paths belong to Tiro's
+  auth proxy and never reach the app once it is published.
+- Tiro registers the app with the EHR (client id: the app's name; launch URL
+  `https://<app>.tirohealth.app/_tiro/auth/launch`). The clinician has nothing to set up.
+- Locally, `pnpm dev` runs the app as if it was not opened from the EHR. To open it from the
+  local Tiro EHR stack, run the auth proxy and set `TIRO_AUTH_URL` (see `.env.example`).

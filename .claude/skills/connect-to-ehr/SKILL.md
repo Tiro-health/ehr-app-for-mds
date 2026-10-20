@@ -12,12 +12,15 @@ rebuild it.
 
 ## How the launch works (for you, not for the clinician)
 
-The EHR opens `/smart/launch?iss=<clinic FHIR base>&launch=…`. The app's server checks the base
-against `SMART_ISS`, sends the clinician through the EHR's sign-in (PKCE, private_key_jwt with the
-app's key), and keeps the sign-in in an encrypted cookie. The browser asks the server for a
-short-lived access token (`getEhrConnection`) and calls the EHR's FHIR API **directly** with it.
-Tokens live 5 minutes and are renewed automatically, one renewal at a time (the EHR ends the
-sign-in when an old refresh token is reused). Patient data never touches the app's server.
+The sign-in is not part of this app. On tirohealth.app, Tiro's auth proxy answers
+`/_tiro/*` and `/.well-known/jwks.json` of every app: the EHR opens
+`/_tiro/auth/launch?iss=<clinic FHIR base>&launch=…`, the proxy checks the base, sends the
+clinician through the EHR's sign-in (PKCE, private_key_jwt with a key only Tiro holds) and keeps
+the sign-in. The browser asks it for a short-lived access token (`/_tiro/auth/token`, done by
+`useSmart()`) and calls the EHR's FHIR API **directly** with it. Tokens live 5 minutes and are
+renewed automatically. Patient data never touches the app's server. Never add routes under
+`/_tiro/` or a `/.well-known/jwks.json`, and never add keys or secrets to the app: there is
+nothing to configure.
 
 ## What the app can read and write
 
@@ -116,8 +119,8 @@ initial, { parse })`. It is saved in the EHR for that clinician once the EHR off
   search parameters, scopes, paging, document rules):
 
   ```tsx
-  const settings = await testSettings()
-  const ehr = fakeEhr(settings) // { openid: true, appState: true } to test App State
+  const settings = testSettings()
+  const ehr = fakeEhr() // { openid: true, appState: true } to test App State
   ehr.add(
     {
       resourceType: 'Patient',
@@ -172,25 +175,23 @@ initial, { parse })`. It is saved in the EHR for that clinician once the EHR off
 The local Tiro EHR stack runs from the EHR repository (`scripts/local-stack.sh`): the EHR at
 http://localhost:3000, its FHIR API at http://localhost:8090, clinics `tonnard-verpaele`,
 `dermato`, `leiedal`, `plastische` with synthetic patients. It registers this app as
-`dev-smart-app` (launch http://localhost:3001/smart/launch, redirect
-http://localhost:3001/smart/callback) and approves it in every clinic.
+`dev-smart-app` (launch http://localhost:3001/_tiro/auth/launch, redirect
+http://localhost:3001/_tiro/auth/callback) and approves it in every clinic.
 
-1. `cp .env.example .env` if `.env` is missing (its `SMART_ISS=http://localhost:8090/t/` admits
-   every clinic of the stack), and put the dev client's private key in
-   `SMART_PRIVATE_JWK` (one line of JSON from the EHR repo's
-   `.local-stack/smart-dev-client/private.jwk.json`) and a random `SESSION_SECRET`
-   (`openssl rand -hex 32`). Never commit `.env`.
+1. Run Tiro's auth proxy locally, as `.env.example` shows (it needs a checkout of
+   Tiro-health/ehr-app-manager and the dev client's key from the EHR repo), and
+   `cp .env.example .env` if `.env` is missing, so `pnpm dev` forwards the sign-in to it.
 2. `pnpm dev` serves the app on http://localhost:3001 (port 3000 is the EHR's).
 3. To try it by hand: sign in to the EHR at http://localhost:3000 as staff with a second factor,
    open a patient, **Apps**, **Openen Dev SMART app**. It opens in a new tab.
 4. `pnpm test:e2e` does the same automatically.
 
-Without the stack, the app still runs and shows "Not opened from a patient's chart"; unit tests
-with the fake EHR still cover the feature.
+Without the stack or the proxy, the app still runs and shows "Not opened from a patient's chart";
+unit tests with the fake EHR still cover the feature.
 
 ## Live
 
-On tirohealth.app the server needs `SMART_CLIENT_ID`, `SMART_PRIVATE_JWK`, `SMART_ISS`, `APP_URL`
-and `SESSION_SECRET` (and `SMART_PUBLIC_JWKS` during a key rotation); Tiro sets them when it
-registers the app with the EHR. `SMART_ISS` is a prefix ending in `/` that admits every clinic. The EHR fetches the
-app's public key from `https://<app>.tirohealth.app/.well-known/jwks.json`.
+Nothing to set up in the app. Tiro registers it with the EHR (client id: the app's name, launch
+URL `https://<app>.tirohealth.app/_tiro/auth/launch`) and the auth proxy does the rest, with the
+scopes from `ehr.scopes` in `src/app.config.ts`, which the app serves at
+`/.well-known/tiro-app.json`.

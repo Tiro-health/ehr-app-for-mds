@@ -1,81 +1,59 @@
 /**
- * An in-memory EHR for tests that follows the Tiro EHR's SMART contract: discovery on the tenant
- * base, `private_key_jwt` (ES384, single-use `jti`, `aud` = the token endpoint), PKCE S256,
- * 300-second access tokens, refresh tokens that rotate and revoke the grant when reused, and a
- * FHIR server that only answers to a live token. `sso-openid-connect` and `smart-app-state`
- * can be switched on to test what the EHR will offer next.
+ * An in-memory EHR for tests: a FHIR server that only answers to a live access token, scoped to
+ * the launched patient, with SMART App State on the server itself or on an associated endpoint.
+ *
+ * The sign-in itself (launch, client assertion, PKCE, refresh) happens in Tiro's auth proxy, not
+ * in this app, and is tested there. `launchedClient` plays the proxy: a clinician who opened the
+ * app from a patient's chart, and the proxy's token endpoint, which hands out a fresh access
+ * token when asked and says the sign-in ended once the EHR revoked the grant.
  */
 import type { FhirResource } from 'fhir/r4'
-import { fromBase64Url, publicJwk, type PrivateJwk } from './keys'
-import type { EhrConnection } from './connection.functions'
-import type { SmartSettings } from './launch'
+import type { EhrConnection } from './connection'
+
+type Launched = Extract<EhrConnection, { status: 'launched' }>
 
 export const ORIGIN = 'https://ehr.example.org'
 export const ISS = `${ORIGIN}/t/clinic/fhir/R4`
-export const TOKEN_ENDPOINT = `${ORIGIN}/oauth/token`
-export const AUTHORIZE_ENDPOINT = `${ORIGIN}/oauth/authorize`
 export const APP_STATE = `${ORIGIN}/appstate`
-export const APP_URL = 'https://app.example.org'
-export const CLIENT_ID = 'test-app'
 export const PRACTITIONER = 'Practitioner/123'
 
 type Resource = { resourceType: string; id?: string; [key: string]: unknown }
 type Grant = {
   patient: string
   scope: string
-  refreshToken: string | null
-  usedRefreshTokens: Set<string>
   revoked: boolean
 }
 
-export async function testKey(): Promise<PrivateJwk> {
-  const pair = (await crypto.subtle.generateKey(
-    { name: 'ECDSA', namedCurve: 'P-384' },
-    true,
-    ['sign', 'verify'],
-  )) as CryptoKeyPair
-  const jwk = await crypto.subtle.exportKey('jwk', pair.privateKey)
-  return { ...jwk, kid: 'test-key', alg: 'ES384' }
-}
-
 /**
- * Settings for a test launch. The scopes are fixed, not app.config.ts's, so tests keep their
+ * What a test launch asks for. The scopes are fixed, not app.config.ts's, so tests keep their
  * meaning when the app asks for more; a test that needs more passes `{ ...settings, scopes }`.
  */
-export async function testSettings(): Promise<SmartSettings> {
+export type TestSettings = { scopes: string[] }
+
+export function testSettings(): TestSettings {
   return {
-    clientId: CLIENT_ID,
-    privateJwk: await testKey(),
-    allowedIssuers: [ISS],
-    appUrl: APP_URL,
     scopes: ['patient/Patient.rs', 'patient/Encounter.rs', 'offline_access'],
   }
 }
 
 export function fakeEhr(
-  settings: SmartSettings,
   options: {
-    /** Adds `sso-openid-connect` and an id_token with fhirUser. */
+    /** The clinician's identity (fhirUser) comes with the sign-in. */
     openid?: boolean
-    /** Adds `smart-app-state`, on the FHIR server or on an associated endpoint. */
+    /** Adds SMART App State, on the FHIR server or on an associated endpoint. */
     appState?: boolean | 'associated'
     /** Seconds an access token lives. */
     tokenLifetime?: number
   } = {},
 ) {
   const resources = new Map<string, Resource>()
-  const grants = new Map<string, Grant>()
+  const grants: Grant[] = []
   const accessTokens = new Map<string, { grant: Grant; expiresAt: number }>()
-  const codes = new Map<
-    string,
-    { challenge: string; redirectUri: string; scope: string; patient: string }
-  >()
-  const seenJti = new Set<string>()
-  const tokenRequests: URLSearchParams[] = []
+  /** Every time the auth proxy was asked for a token after the launch. */
+  const refreshes: number[] = []
   const fhirRequests: string[] = []
   let nextId = 1000
   const appStateBase = options.appState === 'associated' ? APP_STATE : ISS
-  const clientKey = publicJwk(settings.privateJwk)
 
   const json = (
     status: number,
@@ -86,66 +64,6 @@ export function fakeEhr(
       status,
       headers: { 'Content-Type': 'application/fhir+json', ...headers },
     })
-  const oauthError = (status: number, error: string) =>
-    json(status, { error, error_description: error })
-
-  function capabilities() {
-    return [
-      'launch-ehr',
-      'launch-standalone',
-      'context-ehr-patient',
-      'permission-offline',
-      'permission-patient',
-      'client-confidential-asymmetric',
-      ...(options.openid ? ['sso-openid-connect'] : []),
-      ...(options.appState === true ? ['smart-app-state'] : []),
-    ]
-  }
-
-  async function verifyAssertion(form: URLSearchParams) {
-    const assertion = form.get('client_assertion') ?? ''
-    if (
-      form.get('client_assertion_type') !==
-      'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
-    )
-      return false
-    const [h, p, s] = assertion.split('.')
-    if (!h || !p || !s) return false
-    const header = JSON.parse(new TextDecoder().decode(fromBase64Url(h)))
-    const claims = JSON.parse(new TextDecoder().decode(fromBase64Url(p)))
-    if (header.alg !== 'ES384' || header.kid !== clientKey.kid) return false
-    const key = await crypto.subtle.importKey(
-      'jwk',
-      {
-        kty: clientKey.kty,
-        crv: clientKey.crv,
-        x: clientKey.x,
-        y: clientKey.y,
-      },
-      { name: 'ECDSA', namedCurve: 'P-384' },
-      false,
-      ['verify'],
-    )
-    const valid = await crypto.subtle.verify(
-      { name: 'ECDSA', hash: 'SHA-384' },
-      key,
-      fromBase64Url(s),
-      new TextEncoder().encode(`${h}.${p}`),
-    )
-    const now = Date.now() / 1000
-    if (
-      !valid ||
-      claims.iss !== CLIENT_ID ||
-      claims.sub !== CLIENT_ID ||
-      claims.aud !== TOKEN_ENDPOINT ||
-      !(claims.exp > now && claims.exp <= now + 300) ||
-      typeof claims.jti !== 'string' ||
-      seenJti.has(claims.jti)
-    )
-      return false
-    seenJti.add(claims.jti)
-    return true
-  }
 
   function issue(grant: Grant) {
     const accessToken = `access-${crypto.randomUUID()}`
@@ -154,66 +72,6 @@ export function fakeEhr(
       expiresAt: Date.now() / 1000 + (options.tokenLifetime ?? 300),
     })
     return accessToken
-  }
-
-  async function token(form: URLSearchParams) {
-    tokenRequests.push(form)
-    if (!(await verifyAssertion(form))) return oauthError(401, 'invalid_client')
-
-    if (form.get('grant_type') === 'authorization_code') {
-      const code = codes.get(form.get('code') ?? '')
-      codes.delete(form.get('code') ?? '')
-      if (!code || code.redirectUri !== form.get('redirect_uri'))
-        return oauthError(400, 'invalid_grant')
-      const challenge = await s256(form.get('code_verifier') ?? '')
-      if (challenge !== code.challenge) return oauthError(400, 'invalid_grant')
-      const offline = code.scope.split(' ').includes('offline_access')
-      const grant: Grant = {
-        patient: code.patient,
-        scope: code.scope,
-        refreshToken: offline ? `refresh-${crypto.randomUUID()}` : null,
-        usedRefreshTokens: new Set(),
-        revoked: false,
-      }
-      grants.set(crypto.randomUUID(), grant)
-      const openid = code.scope.split(' ').includes('openid')
-      return json(200, {
-        token_type: 'Bearer',
-        access_token: issue(grant),
-        expires_in: options.tokenLifetime ?? 300,
-        scope: grant.scope,
-        patient: grant.patient,
-        ...(grant.refreshToken ? { refresh_token: grant.refreshToken } : {}),
-        ...(openid
-          ? { id_token: unsignedJwt({ fhirUser: PRACTITIONER, sub: 'u1' }) }
-          : {}),
-      })
-    }
-
-    if (form.get('grant_type') === 'refresh_token') {
-      const presented = form.get('refresh_token') ?? ''
-      const grant = [...grants.values()].find(
-        (g) =>
-          g.refreshToken === presented || g.usedRefreshTokens.has(presented),
-      )
-      if (!grant || grant.revoked) return oauthError(400, 'invalid_grant')
-      if (grant.usedRefreshTokens.has(presented)) {
-        // Reuse of a rotated token: the whole grant dies, as in the Tiro EHR (D39).
-        grant.revoked = true
-        grant.refreshToken = null
-        return oauthError(400, 'invalid_grant')
-      }
-      grant.usedRefreshTokens.add(presented)
-      grant.refreshToken = `refresh-${crypto.randomUUID()}`
-      return json(200, {
-        token_type: 'Bearer',
-        access_token: issue(grant),
-        expires_in: options.tokenLifetime ?? 300,
-        scope: grant.scope,
-        refresh_token: grant.refreshToken,
-      })
-    }
-    return oauthError(400, 'unsupported_grant_type')
   }
 
   function liveGrant(headers: Headers) {
@@ -386,85 +244,70 @@ export function fakeEhr(
     const method = init.method ?? 'GET'
     const headers = new Headers(init.headers)
     const body = init.body ? String(init.body) : ''
-
-    if (url.href === `${ISS}/.well-known/smart-configuration`) {
-      return json(200, {
-        issuer: ORIGIN,
-        authorization_endpoint: AUTHORIZE_ENDPOINT,
-        token_endpoint: TOKEN_ENDPOINT,
-        token_endpoint_auth_methods_supported: ['private_key_jwt'],
-        token_endpoint_auth_signing_alg_values_supported: ['RS384', 'ES384'],
-        code_challenge_methods_supported: ['S256'],
-        capabilities: capabilities(),
-        ...(options.appState === 'associated'
-          ? {
-              associated_endpoints: [
-                { url: APP_STATE, capabilities: ['smart-app-state'] },
-              ],
-            }
-          : {}),
-      })
-    }
-    if (url.href === TOKEN_ENDPOINT && method === 'POST')
-      return token(new URLSearchParams(body))
     if (url.href.startsWith(ISS) || url.href.startsWith(appStateBase))
       return fhir(url, method, headers, body)
     return json(404, outcome('Unknown address'))
   }
 
+  /**
+   * A clinician opened the app from `patient`'s chart, and the auth proxy finished the sign-in.
+   * Like the Tiro EHR, identity and App State are granted only when it offers them.
+   */
+  function signIn(patient: string, settings: TestSettings) {
+    const identity = options.openid ? ['openid', 'fhirUser'] : []
+    const appState =
+      options.openid && options.appState ? ['user/Basic.cruds'] : []
+    const grant: Grant = {
+      patient,
+      scope: [...settings.scopes, ...identity, ...appState].join(' '),
+      revoked: false,
+    }
+    grants.push(grant)
+    const connection = (): Launched => ({
+      status: 'launched',
+      fhirBase: ISS,
+      accessToken: issue(grant),
+      expiresAt: Math.floor(Date.now() / 1000) + (options.tokenLifetime ?? 300),
+      scope: grant.scope,
+      patient,
+      ...(options.openid ? { fhirUser: `${ISS}/${PRACTITIONER}` } : {}),
+      ...(appState.length ? { appStateEndpoint: appStateBase } : {}),
+    })
+    let current = connection()
+    /**
+     * The auth proxy's token endpoint, as the browser asks it: the same token until it is about
+     * to expire or the EHR refused it, then a fresh one, unless the EHR revoked the grant.
+     */
+    const connect = async (rejected?: string): Promise<EhrConnection> => {
+      const live = accessTokens.get(current.accessToken)
+      const expiring = !live || live.expiresAt - 60 <= Date.now() / 1000
+      if (rejected !== current.accessToken && !expiring) return current
+      refreshes.push(Date.now())
+      if (grant.revoked) return { status: 'ended' }
+      current = connection()
+      return current
+    }
+    return { first: current, connect }
+  }
+
   return {
     fetch: fetchImpl as typeof fetch,
     resources,
-    tokenRequests,
+    refreshes,
     /** Every FHIR request, in order. */
     fhirRequests,
+    signIn,
     /** Adds resources to the EHR's records. */
     add(...list: (Resource | FhirResource)[]) {
       for (const r of list)
         resources.set(`${r.resourceType}/${r.id}`, r as Resource)
-    },
-    /**
-     * The EHR's side of the authorize redirect: checks what the app sent and, as if the
-     * clinician approved, returns the parameters the EHR sends back to the callback.
-     */
-    async approve(authorizeUrl: string, patient: string) {
-      const url = new URL(authorizeUrl)
-      const p = url.searchParams
-      const problems = [
-        url.origin + url.pathname !== AUTHORIZE_ENDPOINT && 'endpoint',
-        p.get('response_type') !== 'code' && 'response_type',
-        p.get('client_id') !== CLIENT_ID && 'client_id',
-        p.get('aud') !== ISS && 'aud',
-        p.get('code_challenge_method') !== 'S256' && 'pkce',
-        !p.get('state') && 'state',
-      ].filter(Boolean)
-      if (problems.length) throw new Error(`Bad authorize: ${problems}`)
-      // Like the Tiro EHR: user/ scopes only when the capability is there; launch dropped.
-      const scope = (p.get('scope') ?? '')
-        .split(' ')
-        .filter(
-          (s) =>
-            s.startsWith('patient/') ||
-            s === 'offline_access' ||
-            (options.openid && (s === 'openid' || s === 'fhirUser')) ||
-            (options.appState && options.openid && s.startsWith('user/Basic')),
-        )
-        .join(' ')
-      const code = `code-${crypto.randomUUID()}`
-      codes.set(code, {
-        challenge: p.get('code_challenge') ?? '',
-        redirectUri: p.get('redirect_uri') ?? '',
-        scope,
-        patient,
-      })
-      return { code, state: p.get('state') ?? '' }
     },
     /** Makes every access token handed out so far expire now. */
     expireAccessTokens() {
       for (const entry of accessTokens.values()) entry.expiresAt = 0
     },
     grants() {
-      return [...grants.values()]
+      return grants
     },
   }
 }
@@ -531,78 +374,25 @@ function outcome(text: string) {
   }
 }
 
-function unsignedJwt(claims: Record<string, unknown>) {
-  const enc = (v: unknown) =>
-    btoa(JSON.stringify(v))
-      .replace(/=+$/, '')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-  return `${enc({ alg: 'none' })}.${enc(claims)}.`
-}
-
-async function s256(verifier: string) {
-  const digest = await crypto.subtle.digest(
-    'SHA-256',
-    new TextEncoder().encode(verifier),
-  )
-  let binary = ''
-  for (const b of new Uint8Array(digest)) binary += String.fromCharCode(b)
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-}
-
 /**
- * A whole EHR launch against the fake EHR. `connect` plays the app's server
- * (connection.functions.ts): it hands out the access token and refreshes it when it is about to
- * expire or the EHR refused it. `client` is the browser's client for that connection.
+ * A launch from `patient`'s chart. `connect` plays Tiro's auth proxy, which hands out the access
+ * token and refreshes it. `client` is the browser's client for that connection.
  */
 export async function launchInFakeEhr(
   ehr: ReturnType<typeof fakeEhr>,
-  settings: SmartSettings,
+  settings: TestSettings,
   patient: string,
 ) {
-  const { startLaunch, finishLaunch, needsRefresh, refreshConnection } =
-    await import('./launch')
   const { EhrClient } = await import('./client')
-  const { redirectTo, pending } = await startLaunch(
-    settings,
-    { iss: ISS, launch: 'launch-1' },
-    ehr.fetch,
-  )
-  let connection = await finishLaunch(
-    settings,
-    pending,
-    await ehr.approve(redirectTo, patient),
-    ehr.fetch,
-  )
-  const asLaunched = () =>
-    ({
-      status: 'launched',
-      fhirBase: connection.iss,
-      accessToken: connection.accessToken,
-      expiresAt: connection.expiresAt,
-      scope: connection.scope,
-      ...(connection.patient ? { patient: connection.patient } : {}),
-      ...(connection.fhirUser ? { fhirUser: connection.fhirUser } : {}),
-      ...(connection.appStateEndpoint
-        ? { appStateEndpoint: connection.appStateEndpoint }
-        : {}),
-    }) as const
-  const connect = async (rejected?: string): Promise<EhrConnection> => {
-    if (rejected !== connection.accessToken && !needsRefresh(connection))
-      return asLaunched()
-    const fresh = await refreshConnection(settings, connection, ehr.fetch)
-    if (!fresh) return { status: 'ended' }
-    connection = fresh
-    return asLaunched()
-  }
-  const client = new EhrClient(asLaunched(), connect, () => {}, ehr.fetch)
+  const { first, connect } = ehr.signIn(patient, settings)
+  const client = new EhrClient(first, connect, () => {}, ehr.fetch)
   return { client, connect }
 }
 
 /** The browser's client after a launch into the fake EHR. */
 export async function launchedClient(
   ehr: ReturnType<typeof fakeEhr>,
-  settings: SmartSettings,
+  settings: TestSettings,
   patient: string,
 ) {
   return (await launchInFakeEhr(ehr, settings, patient)).client
