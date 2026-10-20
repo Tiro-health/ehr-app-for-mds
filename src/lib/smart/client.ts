@@ -1,13 +1,13 @@
 /**
  * The browser's side of the EHR connection: reads and writes go straight from the browser to
  * the EHR's FHIR server with the short-lived access token. When the token is about to run out,
- * or the EHR refuses it, the app's server is asked for a fresh one, once.
+ * or the EHR refuses it, Tiro's auth proxy is asked for a fresh one, once.
  */
-import type { EhrConnection } from './connection.functions'
+import type { EhrConnection } from './connection'
 
 export type Launched = Extract<EhrConnection, { status: 'launched' }>
 
-/** Asks the app's server for the connection; `rejected` is a token the EHR just refused. */
+/** Asks the auth proxy for the connection; `rejected` is a token the EHR just refused. */
 export type Connect = (rejected?: string) => Promise<EhrConnection>
 
 /** The EHR ended the sign-in; the clinician has to open the app from the EHR again. */

@@ -1,13 +1,13 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { getEhrConnection } from '@/lib/smart/connection.functions'
+import { connectToEhr } from '@/lib/smart/connection'
 import { EhrClient } from '@/lib/smart/client'
 import type { Connect } from '@/lib/smart/client'
 
 /** Whether the app was opened from the EHR, and if so the client to read and write with. */
 export type Smart =
   | { status: 'loading' }
-  /** The deploy has no EHR settings. */
+  /** No sign-in service: local development without Tiro's auth proxy. */
   | { status: 'not-configured' }
   /** Opened directly, not from a patient's chart. `error` says why a launch failed. */
   | { status: 'not-launched'; error?: string }
@@ -17,16 +17,13 @@ export type Smart =
 
 const SmartContext = createContext<Smart | null>(null)
 
-const connectToServer: Connect = (rejected) =>
-  getEhrConnection({ data: { rejected } })
-
 /**
  * Connects to the EHR once, in the browser, and shares the connection with every page.
  * `connect` is replaceable for tests.
  */
 export function SmartProvider({
   children,
-  connect = connectToServer,
+  connect = connectToEhr,
 }: {
   children: ReactNode
   connect?: Connect
@@ -49,7 +46,7 @@ export function SmartProvider({
         console.error(error)
         setSmart({
           status: 'not-launched',
-          error: 'Could not reach this app’s server. Reload the page.',
+          error: 'Could not reach the sign-in service. Reload the page.',
         })
       })
     return () => {
