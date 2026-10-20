@@ -14,9 +14,10 @@ clinical tools with Claude Code. The person you are working with is a medical do
 - Commit after each completed piece of work with a message the clinician would understand.
 - When something fails, fix it. Only ask the clinician when the decision is theirs (what the tool
   should do, what it is called, what it should look like).
-- Patient data: this app runs in the browser and stores data only on the device. If the clinician
-  wants to record real patient data, remind them once, briefly, that the browser is the security
-  boundary and data can be lost with the browser profile. See the `local-data` skill when it exists.
+- Saved data: when the app is opened from the EHR, what it saves is stored in the EHR for the
+  signed-in clinician. Opened on its own, it is saved in the browser only, and can be lost with the
+  browser profile. If the clinician wants to record real patient data, remind them once, briefly,
+  that saved app data is for settings and tool state, not for the patient record.
 
 ## Skills
 
@@ -36,8 +37,13 @@ clinical tools with Claude Code. The person you are working with is a medical do
 | Tests         | Vitest + Testing Library                            |
 | Hosting       | tirohealth.app via the Tiro Deploy GitHub App       |
 
-Pages are rendered on a small Node server (built by Nitro into `.output/`) and then take over in the browser. The
-server keeps no data: it only renders pages. Everything the app stores stays in the browser.
+Pages are rendered on a small Node server (built by Nitro into `.output/`) and then take over in
+the browser. The server keeps no data of its own. Opening the app from the EHR (SMART on FHIR) is
+not this app's job: on tirohealth.app, Tiro's auth proxy answers `/_tiro/*` and
+`/.well-known/jwks.json` for every app, signs in to the EHR with a key only Tiro holds, and keeps
+the sign-in. The browser asks it for a short-lived access token (`useSmart()`) and reads and
+writes the patient's data in the EHR directly; patient data never passes through the app's server.
+The app has no keys, secrets or sign-in settings, and needs none.
 
 ## Layout
 
@@ -50,7 +56,8 @@ src/
   pages/               The actual page content, one file per page, plus its test.
   components/          Reusable pieces built for this app.
   components/ui/       shadcn components. Add more with `pnpm dlx shadcn@latest add <name>`.
-  lib/                 Helpers.
+  hooks/               React hooks. use-smart.tsx is the EHR connection, use-app-state.ts saves data.
+  lib/                 Helpers. lib/smart/ is the EHR connection, the EHR client and App State.
 ```
 
 ## Conventions
@@ -60,9 +67,15 @@ src/
 - **UI**: use the shadcn components in `src/components/ui/` before writing custom markup. Add
   missing ones with the shadcn CLI, never by hand. Never edit files in `src/components/ui/`.
 - **Imports**: use the `@/` alias for anything under `src/`.
+- **Saving data**: use `useAppState(key, initial, { parse })` from `@/hooks/use-app-state` like
+  `useState`. Keys are short lowercase names (`click-count`). Values must be JSON and stay well
+  under 256 KB; always pass `parse` to check what comes back, because stored values are untrusted.
+  App State is for settings and tool state only: never use it for clinical facts (diagnoses,
+  observations, patient registries). The SMART spec forbids that.
 - **Browser-only code**: pages also render on the server, where `window`, `localStorage` and
   IndexedDB do not exist. Touch them only in `useEffect` or event handlers, never while rendering.
-  Do not add server functions that store or receive patient data.
+  Do not add server functions that store, receive or relay patient data: read it in the browser
+  with `useSmart()`.
 - **State**: React state in the page. No global state library unless a skill introduces one.
 - **Tests**: every page gets a small test next to it that renders it and checks the heading.
   Clinical calculations get unit tests with the reference values from the source publication.
@@ -76,9 +89,21 @@ src/
 
 ```
 pnpm install     install dependencies (once)
-pnpm dev         local preview at http://localhost:3000
+pnpm dev         local preview at http://localhost:3001 (the local EHR uses 3000)
 pnpm check       types, lint, format, tests
+pnpm test:e2e    end-to-end tests in a real browser (EHR launch tests need the local EHR stack)
 pnpm format      auto-fix formatting and lint
 pnpm build       production build into .output/
 pnpm start       run the production build at http://localhost:3000
 ```
+
+## Opening from the EHR
+
+- What the app asks to read and write is `ehr.scopes` in `src/app.config.ts`. The app serves it
+  at `/.well-known/tiro-app.json`, where Tiro's auth proxy reads it at every launch.
+- Never add routes under `/_tiro/` or a `/.well-known/jwks.json`: those paths belong to Tiro's
+  auth proxy and never reach the app once it is published.
+- Tiro registers the app with the EHR (client id: the app's name; launch URL
+  `https://<app>.tirohealth.app/_tiro/auth/launch`). The clinician has nothing to set up.
+- Locally, `pnpm dev` runs the app as if it was not opened from the EHR. To open it from the
+  local Tiro EHR stack, run the auth proxy and set `TIRO_AUTH_URL` (see `.env.example`).
