@@ -56,8 +56,10 @@ src/
   pages/               The actual page content, one file per page, plus its test.
   components/          Reusable pieces built for this app.
   components/ui/       shadcn components. Add more with `pnpm dlx shadcn@latest add <name>`.
-  hooks/               React hooks. use-smart.tsx is the EHR connection, use-app-state.ts saves data.
-  lib/                 Helpers. lib/smart/ is the EHR connection, the EHR client and App State.
+  hooks/               React hooks. use-smart.tsx is the EHR connection, use-fhir.ts reads patient
+                       data (usePatient, useEncounters), use-app-state.ts saves data.
+  lib/                 Helpers. lib/fhir.ts is the typed FHIR data layer; lib/smart/ is the EHR
+                       connection, the EHR client, App State and the fake EHR for tests.
 ```
 
 ## Conventions

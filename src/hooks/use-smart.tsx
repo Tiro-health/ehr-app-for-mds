@@ -19,14 +19,16 @@ const SmartContext = createContext<Smart | null>(null)
 
 /**
  * Connects to the EHR once, in the browser, and shares the connection with every page.
- * `connect` is replaceable for tests.
+ * `connect` and `fetch` are replaceable for tests.
  */
 export function SmartProvider({
   children,
   connect = connectToEhr,
+  fetch,
 }: {
   children: ReactNode
   connect?: Connect
+  fetch?: typeof globalThis.fetch
 }) {
   const [smart, setSmart] = useState<Smart>({ status: 'loading' })
 
@@ -36,8 +38,11 @@ export function SmartProvider({
       .then((connection) => {
         if (cancelled) return
         if (connection.status !== 'launched') return setSmart(connection)
-        const client = new EhrClient(connection, connect, () =>
-          setSmart({ status: 'ended' }),
+        const client = new EhrClient(
+          connection,
+          connect,
+          () => setSmart({ status: 'ended' }),
+          fetch,
         )
         setSmart({ status: 'launched', client })
       })
@@ -52,7 +57,7 @@ export function SmartProvider({
     return () => {
       cancelled = true
     }
-  }, [connect])
+  }, [connect, fetch])
 
   return <SmartContext value={smart}>{children}</SmartContext>
 }

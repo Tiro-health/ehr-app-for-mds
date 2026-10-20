@@ -49,7 +49,7 @@ test.describe('opened from the EHR', () => {
     return tokens
   }
 
-  test('the app shows the patient it was opened for, read straight from the EHR', async ({
+  test('the app shows the patient it was opened for and their encounters, read straight from the EHR', async ({
     page,
   }) => {
     const app = await openFromChart(page)
@@ -62,8 +62,55 @@ test.describe('opened from the EHR', () => {
     // The browser calls the EHR itself with the access token; the app's server is not in between.
     expect(read.url()).toContain(`/fhir/R4/Patient/${patient.id}`)
     expect(read.headers()['authorization']).toMatch(/^Bearer \S+/)
-    await expect(app.getByTestId('patient-name')).toContainText(patient.family)
-    await expect(app.getByTestId('patient-name')).toContainText(patient.given)
+
+    await expect(app.getByTestId('patient-name')).toHaveText(
+      `${patient.given} ${patient.family}`,
+    )
+    const [y, m, d] = patient.birthDate.split('-').map(Number)
+    const born = `${d} ${new Date(Date.UTC(y, m - 1)).toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' })} ${y}`
+    await expect(app.getByTestId('patient-details')).toContainText(
+      `Born ${born}`,
+    )
+    await expect(app.getByTestId('patient-details')).toContainText(
+      patient.gender === 'male' ? 'Male' : 'Female',
+    )
+
+    // The encounter list matches the EHR's own records for this patient.
+    await expect(
+      app.getByText(`${patient.encounters} in the EHR, most recent first`),
+    ).toBeVisible()
+    const rows = app
+      .getByRole('list', { name: 'Encounters' })
+      .getByRole('listitem')
+    await expect(rows).toHaveCount(Math.min(5, patient.encounters))
+    const [ly, lm, ld] = patient.latestEncounter.split('-').map(Number)
+    await expect(rows.first()).toContainText(
+      `${ld} ${new Date(Date.UTC(ly, lm - 1)).toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' })} ${ly}`,
+    )
+  })
+
+  test('the clinician’s setting is kept: on this device until the EHR offers App State', async ({
+    page,
+  }) => {
+    const { capabilities } = await discovery()
+    const inEhr =
+      capabilities.includes('smart-app-state') &&
+      capabilities.includes('sso-openid-connect')
+    const app = await openFromChart(page)
+    const rows = app
+      .getByRole('list', { name: 'Encounters' })
+      .getByRole('listitem')
+    await expect(rows).toHaveCount(Math.min(5, patient.encounters))
+    await app.getByRole('button', { name: 'All' }).click()
+    await expect(rows).toHaveCount(patient.encounters)
+    const where = inEhr ? 'Saved in the EHR for you' : 'Saved on this device'
+    await expect(app.getByTestId('setting-saved')).toHaveText(where)
+    await app.reload()
+    await expect(rows).toHaveCount(patient.encounters)
+    await expect(app.getByRole('button', { name: 'All' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
   })
 
   test('the app survives token refreshes: the EHR refuses a token, the app gets a new one', async ({
@@ -103,38 +150,47 @@ test.describe('opened from the EHR', () => {
       'The EHR does not advertise smart-app-state and sso-openid-connect yet (Tiro-health/ehr#2761, #2763).',
     )
     const app = await openFromChart(page)
-    const click = () => app.getByRole('button', { name: 'Click me' }).click()
-    await expect(app.getByText('Saved in the EHR')).toBeVisible()
-    await click()
-    await expect(app.getByText('Clicked 1 time')).toBeVisible()
-    await expect(app.getByText('Saved in the EHR')).toBeVisible()
+    const saved = app.getByTestId('setting-saved')
+    const pressed = (name: string) =>
+      expect(app.getByRole('button', { name })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
+    // Loaded from the EHR (and the page is live) before anything is clicked.
+    await expect(saved).toHaveText('Saved in the EHR for you')
+    await app.getByRole('button', { name: '10' }).click()
+    await pressed('10')
+    await expect(saved).toHaveText('Saved in the EHR for you')
 
-    // A fresh read with nothing on the device: the value comes back from the EHR.
+    // A fresh read with nothing on the device: the setting comes back from the EHR.
     await app.evaluate(() => window.localStorage.clear())
     await app.reload()
-    await expect(app.getByText('Clicked 1 time')).toBeVisible()
-    await expect(app.getByText('Saved in the EHR')).toBeVisible()
+    await pressed('10')
+    await expect(saved).toHaveText('Saved in the EHR for you')
     expect(
       await app.evaluate(() =>
-        window.localStorage.getItem('app-state:click-count'),
+        window.localStorage.getItem('app-state:encounters-shown'),
       ),
     ).toBeNull()
 
-    // A second tab saves first; this tab's save then carries a stale version, and the app
-    // shows the newer value instead of overwriting it.
+    // Another tab saves first; this tab's save then carries a stale version, and the app
+    // shows the newer setting instead of overwriting it.
     const other = await app.context().newPage()
     await other.goto('http://localhost:3001/')
-    await expect(other.getByText('Clicked 1 time')).toBeVisible()
-    await other.getByRole('button', { name: 'Click me' }).click()
-    await expect(other.getByText('Clicked 2 times')).toBeVisible()
-    await other.getByRole('button', { name: 'Click me' }).click()
-    await expect(other.getByText('Clicked 3 times')).toBeVisible()
-    await expect(other.getByText('Saved in the EHR')).toBeVisible()
+    await expect(other.getByTestId('setting-saved')).toHaveText(
+      'Saved in the EHR for you',
+    )
+    await expect(other.getByRole('button', { name: '10' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    await other.getByRole('button', { name: 'All' }).click()
+    await expect(other.getByTestId('setting-saved')).toHaveText(
+      'Saved in the EHR for you',
+    )
 
-    await click()
-    await expect(
-      app.getByText('Updated elsewhere: showing the latest'),
-    ).toBeVisible()
-    await expect(app.getByText('Clicked 3 times')).toBeVisible()
+    await app.getByRole('button', { name: '5' }).click()
+    await expect(saved).toHaveText('Changed elsewhere: showing the latest')
+    await pressed('All')
   })
 })
