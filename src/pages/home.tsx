@@ -8,6 +8,8 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { useEncounters, usePatient } from '@/hooks/ehr'
+import { encounterTitle, formatDate, patientName } from '@/lib/fhir/format'
 
 export function HomePage() {
   const [clicks, setClicks] = useState(0)
@@ -20,6 +22,8 @@ export function HomePage() {
         </h1>
         <p className="mt-2 text-muted-foreground">{appConfig.tagline}</p>
       </div>
+
+      <PatientCard />
 
       <Card>
         <CardHeader>
@@ -37,5 +41,45 @@ export function HomePage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+/** The patient the app was opened for. Shows nothing when the app was opened directly. */
+function PatientCard() {
+  const { patient } = usePatient()
+  const { encounters, error } = useEncounters()
+  if (!patient) return null
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{patientName(patient)}</CardTitle>
+        <CardDescription>
+          Opened from the EHR
+          {patient.birthDate && ` · born ${formatDate(patient.birthDate)}`}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <h2 className="text-sm font-medium">Encounters</h2>
+        {error ? (
+          <p className="mt-2 text-sm text-destructive">{error.message}</p>
+        ) : encounters.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">
+            No encounters yet.
+          </p>
+        ) : (
+          <ul aria-label="Encounters" className="mt-2 divide-y text-sm">
+            {encounters.map((encounter) => (
+              <li key={encounter.id} className="flex justify-between py-2">
+                <span>{encounterTitle(encounter)}</span>
+                <span className="text-muted-foreground">
+                  {formatDate(encounter.period?.start)} · {encounter.status}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   )
 }

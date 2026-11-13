@@ -1,0 +1,12 @@
+{
+  "requiresPatient": true,
+  "scopes": [
+    "launch",
+    "openid",
+    "fhirUser",
+    "patient/Patient.rs",
+    "patient/Encounter.rs",
+    "offline_access",
+    "user/Basic.cruds"
+  ]
+}

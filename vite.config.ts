@@ -6,11 +6,12 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   resolve: { tsconfigPaths: true },
-  server: { port: 3000 },
+  server: { port: Number(process.env.PORT) || 3000 },
   plugins: [tailwindcss(), tanstackStart(), nitro(), viteReact()],
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
     globals: true,
+    exclude: ['node_modules', '.output', 'e2e'],
   },
 })
