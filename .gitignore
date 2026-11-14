@@ -19,3 +19,6 @@ src/routeTree.gen.ts
 # Browser test output
 test-results/
 playwright-report/
+
+# State of the real-EHR test
+e2e-ehr/.state/

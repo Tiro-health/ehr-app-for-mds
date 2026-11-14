@@ -1,6 +1,7 @@
 // Part of `pnpm check`. Verifies the two things the hosting platform relies on:
 //
-// 1. smart.json states which EHR permissions (scopes) the app asks for.
+// 1. smart.json states which EHR permissions (scopes) the app needs. The platform does not
+//    read it yet (it uses the app's registration in the EHR); the local preview does.
 // 2. The app defines no page on the addresses the platform keeps for itself. The platform
 //    handles the launch from the EHR on those; a page there would never be reached and
 //    would mean the app is trying to do the platform's job.

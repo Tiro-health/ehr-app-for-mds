@@ -51,12 +51,12 @@ export interface LaunchContext {
   patient: string | null
   /** Id of the encounter that was open, if any. */
   encounter: string | null
-  /** Id of the signed-in practitioner, if any. */
+  /** Id of the signed-in practitioner, or null when the EHR did not say who it is. */
   practitioner: string | null
   /** The signed-in user as a FHIR reference, for example "Practitioner/123". */
   fhirUser: string | null
   fhirVersion: string | null
-  /** The permissions the EHR granted (see smart.json). */
+  /** The permissions the clinic granted. May be fewer than the app asked for. */
   scopes: string[]
   intent: string | null
 }
@@ -169,8 +169,9 @@ export function createFhirClient(cookie: () => string | undefined) {
     const response = await send(what, path, init)
     if (response.ok) return (await response.json()) as T
 
-    const outcome = (await response.json().catch(() => undefined)) as
+    const body = (await response.json().catch(() => undefined)) as
       OperationOutcome | undefined
+    const outcome = body?.resourceType === 'OperationOutcome' ? body : undefined
     if (response.status === 403) {
       const { scopes } = await context()
       if (!grants(scopes, type, interaction)) {

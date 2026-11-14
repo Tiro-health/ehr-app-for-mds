@@ -37,13 +37,28 @@ describe('context', () => {
       encounter: 'synthetic-encounter-3',
       practitioner: 'synthetic-practitioner-1',
       fhirUser: 'Practitioner/synthetic-practitioner-1',
-      fhirVersion: '4.0.1',
+      fhirVersion: 'R4',
     })
   })
 
   test('lists the granted scopes', async () => {
     const { fhir } = await launched({ scopes: READ_ONLY })
-    expect((await fhir.context()).scopes).toEqual(READ_ONLY)
+    expect((await fhir.context()).scopes).toEqual([
+      'launch',
+      'openid',
+      'fhirUser',
+      'patient/Patient.rs',
+      'patient/Encounter.rs',
+    ])
+  })
+
+  test('has no practitioner when the EHR did not say who is signed in', async () => {
+    const { fhir } = await launched({}, '?user=none')
+    expect(await fhir.context()).toMatchObject({
+      patient: 'synthetic-patient-1',
+      practitioner: null,
+      fhirUser: null,
+    })
   })
 })
 
@@ -80,7 +95,7 @@ describe('no session', () => {
 })
 
 describe('refused scope', () => {
-  test('names the scope to add to the manifest', async () => {
+  test('names the scope that was not granted', async () => {
     const { fhir } = await launched({
       scopes: ['launch', 'patient/Patient.rs'],
     })
@@ -228,4 +243,60 @@ test('only ever talks to this machine', async () => {
   vi.stubEnv('EHR_SIDECAR_URL', 'https://example.org')
   const fhir = createFhirClient(() => cookie)
   await expect(fhir.context()).rejects.toThrow('loopback')
+})
+
+describe('the pretend sidecar behaves as the real one', () => {
+  test('a clinic that grants a subset still launches', async () => {
+    const { fhir } = await launched({ scopes: ['patient/Patient.rs'] })
+    expect((await fhir.context()).scopes).toEqual([
+      'launch',
+      'openid',
+      'fhirUser',
+      'patient/Patient.rs',
+    ])
+  })
+
+  test('a clinic that grants none of the asked scopes refuses the launch', async () => {
+    const sidecar = await startFakeSidecar({
+      publicPort: 0,
+      apiPort: 0,
+      scopes: ['patient/Observation.rs'],
+    })
+    running.push(sidecar)
+    const answer = await fetch(`${sidecar.publicUrl}/launch`, {
+      redirect: 'manual',
+    })
+    expect(answer.headers.get('location')).toBe(
+      '/not-launched?reason=scope-missing',
+    )
+    expect(answer.headers.get('set-cookie')).toBeNull()
+  })
+
+  test('only GET and HEAD reach /launch and /callback', async () => {
+    const { sidecar } = await launched()
+    for (const path of ['/launch', '/callback']) {
+      const answer = await fetch(sidecar.publicUrl + path, { method: 'POST' })
+      expect(answer.status).toBe(405)
+    }
+  })
+
+  test('a path that could leave the clinic’s FHIR base is refused', async () => {
+    const { sidecar, cookie } = await launched()
+    const answer = await fetch(`${sidecar.apiUrl}/fhir/Patient/a%20b`, {
+      headers: { cookie },
+    })
+    expect(answer.status).toBe(400)
+    expect(await answer.json()).toEqual({ error: 'invalid_path' })
+  })
+
+  test('search links come back through the loopback API', async () => {
+    const { sidecar, cookie } = await launched({ pageSize: 1 })
+    const answer = await fetch(`${sidecar.apiUrl}/fhir/Encounter`, {
+      headers: { cookie },
+    })
+    const bundle = (await answer.json()) as { link: { url: string }[] }
+    for (const { url } of bundle.link) {
+      expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/fhir[/?]/)
+    }
+  })
 })

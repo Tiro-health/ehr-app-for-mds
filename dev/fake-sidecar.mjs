@@ -5,14 +5,17 @@
 // loopback. This file imitates that with invented data (see synthetic-data.mjs), so the app
 // can be previewed "as launched" without an EHR. It is never deployed.
 //
-// It follows the same contract as the real one:
+// It follows the same contract as the real one (smart-sidecar/README.md in Tiro-health/ehr):
 // - public port: GET /launch, GET /callback and GET /.well-known/jwks.json are its own,
-//   everything else is passed on to the app unchanged;
+//   everything else is passed on to the app unchanged, visitors without a session included;
 // - loopback port: GET /session and ANY /fhir/<path>, identified by the browser's Cookie
 //   header, which the app forwards as is.
+//
+// Where it knowingly differs: GET /launch needs no EHR. It starts a session for an invented
+// patient straight away (`?patient=<id>` picks one, `?user=none` launches without a known
+// user, `?fail=<reason>` refuses the launch).
 
 import http from 'node:http'
-import net from 'node:net'
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import {
@@ -58,7 +61,7 @@ function readManifest() {
  * @param {number} [options.publicPort] port the browser talks to (0 picks a free one)
  * @param {number} [options.apiPort] loopback port the app talks to (0 picks a free one)
  * @param {string} [options.appUrl] where the app itself listens
- * @param {string[]} [options.scopes] scopes a launch grants; default: those in smart.json
+ * @param {string[]} [options.scopes] scopes the clinic grants; default: all those in smart.json
  * @param {boolean} [options.autoLaunch] launch on the first page visit instead of on /launch
  * @param {number} [options.pageSize] resources per search page
  */
@@ -67,7 +70,7 @@ export async function startFakeSidecar(options = {}) {
     publicPort = 3001,
     apiPort = 8081,
     appUrl = 'http://127.0.0.1:3000',
-    scopes = readManifest().scopes,
+    scopes: grantedByClinic,
     autoLaunch = false,
     pageSize = 20,
   } = options
@@ -77,6 +80,16 @@ export async function startFakeSidecar(options = {}) {
   /** @type {any[]} */
   const documents = []
   const app = new URL(appUrl)
+
+  // The app asks for the scopes in smart.json; the clinic may grant fewer. The three launch
+  // scopes are always part of a session.
+  const isResourceScope = (scope) => /^(patient|user|system)\//.test(scope)
+  const asked = readManifest().scopes
+  const clinicGrants = grantedByClinic ?? asked
+  const scopes = [...new Set(['launch', 'openid', 'fhirUser', ...clinicGrants])]
+  const noneGranted = !asked
+    .filter(isResourceScope)
+    .some((scope) => clinicGrants.includes(scope))
   const syntheticResources = [...patients, ...encounters, ...otherResources]
 
   const sessionOf = (req) => {
@@ -99,6 +112,8 @@ export async function startFakeSidecar(options = {}) {
     const fail = url.searchParams.get('fail')
     if (fail) return redirect(res, `/not-launched?reason=${fail}`)
 
+    if (noneGranted) return redirect(res, '/not-launched?reason=scope-missing')
+
     const wanted = url.searchParams.get('patient') ?? patients[0].id
     const patient = patients.find((p) => p.id === wanted)
     if (!patient) return redirect(res, '/not-launched?reason=no-patient')
@@ -108,13 +123,14 @@ export async function startFakeSidecar(options = {}) {
         e.status === 'in-progress' &&
         e.subject.reference === `Patient/${patient.id}`,
     )
+    const knownUser = url.searchParams.get('user') !== 'none'
     const id = randomUUID()
     sessions.set(id, {
       patient: patient.id,
       encounter: current?.id ?? null,
-      practitioner: practitioner.id,
-      fhirUser: `Practitioner/${practitioner.id}`,
-      fhirVersion: '4.0.1',
+      practitioner: knownUser ? practitioner.id : null,
+      fhirUser: knownUser ? `Practitioner/${practitioner.id}` : null,
+      fhirVersion: 'R4',
       scopes,
       intent: null,
     })
@@ -133,13 +149,22 @@ export async function startFakeSidecar(options = {}) {
         headers: req.headers,
       },
       (answer) => {
-        res.writeHead(answer.statusCode ?? 502, answer.headers)
+        // The session cookie is the sidecar's alone: the app cannot set or clear it.
+        const cookies = answer.headers['set-cookie']?.filter(
+          (cookie) => !cookie.trimStart().startsWith(`${SESSION_COOKIE}=`),
+        )
+        const headers = { ...answer.headers }
+        if (cookies?.length) headers['set-cookie'] = cookies
+        else delete headers['set-cookie']
+        res.writeHead(answer.statusCode ?? 502, headers)
         answer.pipe(res)
       },
     )
     upstream.on('error', () => {
-      if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain' })
-      res.end('The app is not running yet. Try again in a moment.')
+      if (!res.headersSent) {
+        res.writeHead(502, { 'content-type': 'application/json' })
+      }
+      res.end('{"error":"app_unavailable"}')
     })
     req.pipe(upstream)
   }
@@ -148,9 +173,14 @@ export async function startFakeSidecar(options = {}) {
     const url = new URL(req.url ?? '/', 'http://sidecar')
     const reading = req.method === 'GET' || req.method === 'HEAD'
 
-    if (reading && url.pathname === '/launch') return launch(url, res)
-    if (reading && url.pathname === '/callback') {
-      return redirect(res, '/not-launched?reason=not-from-ehr')
+    if (url.pathname === '/launch' || url.pathname === '/callback') {
+      if (!reading) {
+        res.writeHead(405, { allow: 'GET, HEAD' })
+        return res.end()
+      }
+      return url.pathname === '/launch'
+        ? launch(url, res)
+        : redirect(res, '/not-launched?reason=not-from-ehr')
     }
     if (reading && url.pathname === '/.well-known/jwks.json') {
       res.writeHead(200, { 'content-type': 'application/json' })
@@ -161,7 +191,7 @@ export async function startFakeSidecar(options = {}) {
     const origin = req.headers.origin
     if (!reading && origin && origin !== `http://${req.headers.host}`) {
       res.writeHead(403, { 'content-type': 'application/json' })
-      return res.end('{"error":"origin_refused"}')
+      return res.end('{"error":"cross_origin"}')
     }
 
     const visitingPage =
@@ -173,21 +203,6 @@ export async function startFakeSidecar(options = {}) {
     }
 
     proxy(req, res)
-  })
-
-  // Live reload in local preview uses a WebSocket; pass it through as well.
-  publicServer.on('upgrade', (req, socket, head) => {
-    const upstream = net.connect(Number(app.port), app.hostname, () => {
-      const lines = [`${req.method} ${req.url} HTTP/1.1`]
-      for (let i = 0; i < req.rawHeaders.length; i += 2) {
-        lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`)
-      }
-      upstream.write(lines.join('\r\n') + '\r\n\r\n')
-      upstream.write(head)
-      socket.pipe(upstream).pipe(socket)
-    })
-    upstream.on('error', () => socket.destroy())
-    socket.on('error', () => upstream.destroy())
   })
 
   // ---------------------------------------------------------------- loopback
@@ -379,6 +394,11 @@ export async function startFakeSidecar(options = {}) {
       if (!session) {
         res.writeHead(401, { 'content-type': 'application/json' })
         return res.end('{"error":"no_session"}')
+      }
+      const segments = url.pathname.split('/').slice(2)
+      if (isFhir && !segments.every((s) => /^[A-Za-z0-9._$~-]+$/.test(s))) {
+        res.writeHead(400, { 'content-type': 'application/json' })
+        return res.end('{"error":"invalid_path"}')
       }
       if (!isFhir) {
         res.writeHead(200, {

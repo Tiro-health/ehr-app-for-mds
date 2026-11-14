@@ -12,15 +12,18 @@ export class NotLaunchedError extends Error {
 }
 
 /**
- * The EHR refused the request because the app did not ask for the permission it needs.
- * `scope` is the line to add to the `scopes` list in `smart.json`.
+ * The EHR refused the request because the app was not granted the permission it needs:
+ * the app is not registered for it, or the clinic did not approve it. `scope` names it.
+ * Tiro registers what an app may ask for; listing the scope in `smart.json` records the
+ * need and makes the local preview grant it, but does not by itself change the EHR.
  */
 export class ScopeRefusedError extends Error {
   override name = 'ScopeRefusedError'
   constructor(readonly scope: string) {
     super(
-      `The EHR refused this request: the app has no permission "${scope}". ` +
-        `Add "${scope}" to the scopes in smart.json.`,
+      `The EHR refused this request: the app was not granted "${scope}". ` +
+        `List "${scope}" in smart.json and ask Tiro to register it for this app; ` +
+        `the clinic then approves it.`,
     )
   }
 }

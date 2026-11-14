@@ -74,8 +74,10 @@ So patient data from the EHR passes through this app's server code. These rules 
 If a request can only be met by breaking one of these, do not build it. Tell the clinician it is
 not possible in this app and that Tiro can advise.
 
-What the app asks the EHR for is listed in `smart.json` (the scopes). Add a scope there when a
-feature needs more; the skill explains how and what to tell the clinician.
+What the app needs from the EHR is listed in `smart.json` (the scopes). The local preview grants
+exactly that list. Online, the app gets what Tiro registered for it and the clinic approved; the
+platform does not read `smart.json` yet. Add a scope there when a feature needs more; the skill
+explains how and what to tell the clinician.
 
 ## Layout
 
@@ -92,9 +94,10 @@ src/
   components/          Reusable pieces built for this app.
   components/ui/       shadcn components. Add more with `pnpm dlx shadcn@latest add <name>`.
   lib/                 Helpers.
-smart.json             What the app asks the EHR for (scopes). Checked by `pnpm check`.
+smart.json             What the app needs from the EHR (scopes). Checked by `pnpm check`.
 dev/                   The pretend EHR for local preview and tests, with invented data.
 e2e/                   Browser test of the built app behind the pretend EHR.
+e2e-ehr/               For Tiro's developers: the same test against the real EHR. Leave it alone.
 ```
 
 ## Conventions

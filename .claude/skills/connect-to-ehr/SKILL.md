@@ -82,8 +82,8 @@ It throws three kinds of error (from `@/lib/fhir.server`):
 
 - `NotLaunchedError`: the app was not opened from the EHR, or the session ended. Wrap the call
   in `fromEhr()` (below) so the page gets `{ launched: false }` instead of an error.
-- `ScopeRefusedError`: the app did not ask for the permission this call needs. `error.scope`
-  is the line to add to `smart.json` (see "Permissions").
+- `ScopeRefusedError`: the app was not granted the permission this call needs. `error.scope`
+  names it (see "Permissions").
 - `FhirRequestError`: any other refusal; `error.status` is the HTTP status. Its message is
   safe to show; do not print `error.outcome`.
 
@@ -159,12 +159,19 @@ Existing hooks: `usePatient()` gives `{ patient, launched, isLoading, error }`;
 - A scope is `patient/<ResourceType>.<letters>`: `r` read one, `s` search, `c` create,
   `u` update, `d` delete. `patient/Observation.rs` reads and searches the launched patient's
   observations; `patient/DocumentReference.c` files documents.
-- **To add one**: add the line to `scopes`, run `pnpm check`. Ask for the least the tool needs.
-- Tell the clinician once, plainly: the extra access works in the local preview at once, but
-  online it only works after Tiro and the clinic have approved it for this app.
+- `smart.json` is the app's own record of what it needs, and the local preview grants exactly
+  what it lists. **The hosting platform does not read it yet**: online, the app gets what Tiro
+  registered for it in the EHR and the clinic approved, which can be less than the app asks.
+- **To add one**: add the line to `scopes`, run `pnpm check`, and tell the clinician once,
+  plainly: the extra access works in the local preview at once, but online it only works after
+  they ask Tiro to add it to the app's registration and the clinic approves it. Ask for the
+  least the tool needs.
 - `requiresPatient` is `true` when the tool is about one patient. Leave the first three scopes
   and `offline_access` as they are.
-- A `ScopeRefusedError` names the missing scope. Add it; never catch the error to hide it.
+- A `ScopeRefusedError` names the scope that was not granted. Never catch it to hide it. Build
+  the page so the rest still works when one kind of data is refused, and say which is missing.
+- `fhir.context()` can return `practitioner: null`: the EHR does not always say who is signed
+  in. Do not assume a practitioner.
 
 ## Trying it locally
 
@@ -182,8 +189,9 @@ To preview a resource type that is not there yet, add invented resources to `oth
 `pnpm test:e2e` builds the app and drives it in a real browser behind the pretend EHR. Run it
 after changing anything that uses EHR data.
 
-Running against the real EHR on a developer's machine (the EHR local stack, the `dev-smart-app`
-client, the real sidecar on `localhost:3001`) is for Tiro's developers, not for the clinician.
+Running against the real EHR on a developer's machine (the EHR local stack and the real
+sidecar) is for Tiro's developers, not for the clinician: `e2e-ehr/README.md`. Never edit that
+folder, and never copy from it: it plays the EHR's side of a launch, which an app must not do.
 The pretend EHR is enough to build and publish.
 
 ## What to tell the clinician

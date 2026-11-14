@@ -4,6 +4,7 @@
     "dev",
     "scripts",
     "e2e",
+    "e2e-ehr",
     "playwright.config.ts",
     "vite.config.ts",
     "eslint.config.js",
