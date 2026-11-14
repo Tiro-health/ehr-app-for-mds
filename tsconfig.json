@@ -22,6 +22,7 @@
     "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"],
     "allowImportingTsExtensions": true,
     "allowJs": true,
+    "resolveJsonModule": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "skipLibCheck": true,

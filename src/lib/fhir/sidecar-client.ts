@@ -1,10 +1,4 @@
-import type {
-  Bundle,
-  Coding,
-  DocumentReference,
-  FhirResource,
-  OperationOutcome,
-} from 'fhir/r4'
+import type { Bundle, FhirResource, OperationOutcome } from 'fhir/r4'
 import {
   FhirRequestError,
   NotLaunchedError,
@@ -17,12 +11,12 @@ import {
 // alone knows how to reach the clinic. This file asks the sidecar, on this machine only, and
 // identifies the visitor by passing on the browser's Cookie header untouched. Nothing here
 // knows which clinic it is, where the EHR lives, or how the visitor signed in.
+//
+// Nothing here knows a resource type either: which types, interactions and search parameters
+// exist is the EHR's to say (`request('GET', 'metadata')` returns its CapabilityStatement).
 
 const DEFAULT_SIDECAR = 'http://127.0.0.1:8081'
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]'])
-
-export const DOCUMENT_KIND_SYSTEM = 'urn:tiro-health:document-kind'
-export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 
 export type ResourceType = FhirResource['resourceType']
 export type ResourceOf<T extends ResourceType> = Extract<
@@ -31,19 +25,15 @@ export type ResourceOf<T extends ResourceType> = Extract<
 >
 
 /**
- * The search parameters the clinic's FHIR API accepts. Each one matches exactly; a parameter
- * that is not listed is refused by the EHR.
+ * Search parameters by name. A list repeats the parameter, which FHIR reads as "all of
+ * these"; for "any of these" join the values with a comma in one string.
  */
-export interface SearchParameters {
-  Patient: 'gender' | 'family' | 'given' | 'identifier'
-  Encounter: 'status' | 'class'
-  DocumentReference: 'patient' | 'subject' | 'identifier'
-}
+export type SearchParams = Record<string, string | string[] | undefined>
 
-export type SearchParamsOf<T extends ResourceType> =
-  T extends keyof SearchParameters
-    ? Partial<Record<SearchParameters[T], string>>
-    : Record<string, string>
+export interface SearchOptions {
+  /** Stop after this many matches. Default 200. */
+  max?: number
+}
 
 /** What the EHR told the app when it opened it. */
 export interface LaunchContext {
@@ -61,18 +51,17 @@ export interface LaunchContext {
   intent: string | null
 }
 
-export interface NewDocument {
-  /** A code from the clinic's document kinds, or a full Coding. */
-  type: string | Coding
-  title: string
-  /** For example "application/pdf" or "text/plain". */
-  contentType: string
-  /** The file itself: bytes, or text. At most 10 MiB. */
-  data: Uint8Array | string
-  description?: string
+export type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+
+export interface RequestOptions {
+  /**
+   * The version the write is based on: `meta.versionId` of the resource as it was read.
+   * The EHR refuses an update without it, and one based on an older version.
+   */
+  version?: string
 }
 
-type Interaction = 'r' | 's' | 'c'
+type Interaction = 'r' | 's' | 'c' | 'u' | 'd'
 
 function sidecarUrl(): string {
   const url = new URL(process.env.EHR_SIDECAR_URL ?? DEFAULT_SIDECAR)
@@ -90,31 +79,126 @@ const idOf = (value: unknown): string | null =>
 const text = (value: unknown): string | null =>
   typeof value === 'string' && value !== '' ? value : null
 
-function checkId(id: string): string {
-  if (!/^[A-Za-z0-9\-.]{1,64}$/.test(id)) {
+function checkId(id: unknown): string {
+  if (typeof id !== 'string' || !/^[A-Za-z0-9\-.]{1,64}$/.test(id)) {
     throw new TypeError('Not a valid FHIR id.')
   }
   return id
 }
 
-function grants(scopes: string[], type: string, interaction: Interaction) {
-  return scopes.some((scope) => {
-    const match = /^(?:patient|user|system)\/([A-Za-z*]+)\.([a-z*]+)$/.exec(
-      scope,
+function checkType(type: unknown): string {
+  if (typeof type !== 'string' || !/^[A-Z][A-Za-z]{0,63}$/.test(type)) {
+    throw new TypeError('Not a FHIR resource type.')
+  }
+  return type
+}
+
+/**
+ * Turns the path of `request()` into a path under `/fhir/` on the sidecar, or throws. A path
+ * is relative ("Patient/123/$everything?_count=10"): no host, no "..", nothing that could
+ * reach another address.
+ */
+function fhirPath(path: string): { path: string; segments: string[] } {
+  const [route = '', ...queryParts] = path.split('?')
+  const query = queryParts.join('?')
+  const segments = route.split('/').filter((segment) => segment !== '')
+  const safe =
+    !route.startsWith('//') &&
+    !/[\s\\#]|[^\x20-\x7e]/.test(path) &&
+    segments.every((s) => /^[A-Za-z0-9._$~-]+$/.test(s) && !/^\.+$/.test(s))
+  if (!safe) {
+    throw new TypeError(
+      'Not a FHIR path. Give a path under the FHIR base, such as "Patient/123".',
     )
-    if (!match) return false
-    const [, resource, rights] = match
-    if (resource !== '*' && resource !== type) return false
-    const letters = rights === '*' ? 'cruds' : rights === 'read' ? 'rs' : rights
-    return letters.includes(interaction)
-  })
+  }
+  const base = segments.length ? `/fhir/${segments.join('/')}` : '/fhir'
+  return { path: query ? `${base}?${query}` : base, segments }
+}
+
+const SCOPE = /^(patient|user|system)\/([A-Za-z*]+)\.([a-z*]+)$/
+
+function grants(scope: string, type: string, interaction: Interaction) {
+  const match = SCOPE.exec(scope)
+  if (!match) return false
+  const [, , resource, rights] = match
+  if (resource !== '*' && resource !== type) return false
+  const letters =
+    rights === '*'
+      ? 'cruds'
+      : rights === 'read'
+        ? 'rs'
+        : rights === 'write'
+          ? 'cud'
+          : rights
+  return letters.includes(interaction)
+}
+
+/** The scope to name when `type`/`interaction` was refused: the app's own wording if it has one. */
+function missingScope(
+  type: string,
+  interaction: Interaction,
+  granted: string[],
+  asked: string[],
+): { scope: string; listed: boolean } {
+  const listed = asked.find((scope) => grants(scope, type, interaction))
+  if (listed) return { scope: listed, listed: true }
+  // Not asked for yet: suggest it at the level the app already uses for this type.
+  const sameType = [...asked, ...granted]
+    .map((scope) => SCOPE.exec(scope))
+    .find((match) => match?.[2] === type)
+  const level = sameType?.[1] ?? 'patient'
+  const letters =
+    interaction === 'r' || interaction === 's' ? 'rs' : interaction
+  return { scope: `${level}/${type}.${letters}`, listed: false }
+}
+
+function hint(
+  status: number,
+  outcome: OperationOutcome | undefined,
+  type: string | undefined,
+  interaction: Interaction | undefined,
+  paramNames: string[],
+): string | undefined {
+  const refusesInteraction = outcome?.issue.some(
+    (issue) => issue.code === 'not-supported',
+  )
+  if (status === 400 && refusesInteraction) {
+    return `The EHR does not support this interaction${type ? ` for ${type}` : ''}.`
+  }
+  if (status === 400 && interaction === 's' && paramNames.length > 0) {
+    return (
+      `The EHR refused a search parameter or its value. Parameters sent: ` +
+      `${paramNames.join(', ')}. Its CapabilityStatement lists the ones it accepts` +
+      `${type ? ` for ${type}` : ''}: fhir.request('GET', 'metadata').`
+    )
+  }
+  if (status === 404 && type && interaction && interaction !== 'r') {
+    return interaction === 's' || interaction === 'c'
+      ? `The EHR does not serve ${type}.`
+      : `The EHR does not serve ${type}, or this one does not exist.`
+  }
+  if (status === 412) {
+    return 'It changed in the EHR since it was read: read it again and retry.'
+  }
+  if (status === 428) {
+    return 'The EHR needs the version this change is based on: read the resource first and pass on its meta.versionId.'
+  }
+  return undefined
+}
+
+export interface FhirClientOptions {
+  /** The scopes the app asks for (smart.json), used to name a refused one in its own words. */
+  asked?: string[]
 }
 
 /**
  * Builds the FHIR helper for one request. `cookie` returns the Cookie header of the
  * request being answered; it is passed on as is and never read.
  */
-export function createFhirClient(cookie: () => string | undefined) {
+export function createFhirClient(
+  cookie: () => string | undefined,
+  { asked = [] }: FhirClientOptions = {},
+) {
   async function send(what: string, path: string, init: RequestInit = {}) {
     const forwarded = cookie()
     if (!forwarded) throw new NotLaunchedError()
@@ -159,27 +243,53 @@ export function createFhirClient(cookie: () => string | undefined) {
     }
   }
 
+  /** One call to the clinic's FHIR API. `what` goes into error messages: no ids, no values. */
   async function fhir<T>(
     what: string,
-    type: string,
-    interaction: Interaction,
     path: string,
-    init?: RequestInit,
+    about: { type?: string; interaction?: Interaction; params?: string[] },
+    init: { method?: Method; body?: unknown; version?: string } = {},
   ): Promise<T> {
-    const response = await send(what, path, init)
-    if (response.ok) return (await response.json()) as T
+    const headers: Record<string, string> = {}
+    if (init.body !== undefined) {
+      headers['content-type'] =
+        init.method === 'PATCH' && Array.isArray(init.body)
+          ? 'application/json-patch+json'
+          : 'application/fhir+json'
+    }
+    if (init.version !== undefined) {
+      if (!/^[A-Za-z0-9\-.]{1,64}$/.test(init.version)) {
+        throw new TypeError('Not a valid version id.')
+      }
+      headers['if-match'] = `W/"${init.version}"`
+    }
+    const response = await send(what, path, {
+      method: init.method ?? 'GET',
+      headers,
+      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+    })
+    const body = (await response.json().catch(() => undefined)) as unknown
+    if (response.ok) return body as T
 
-    const body = (await response.json().catch(() => undefined)) as
-      OperationOutcome | undefined
-    const outcome = body?.resourceType === 'OperationOutcome' ? body : undefined
-    if (response.status === 403) {
+    const { type, interaction, params = [] } = about
+    const outcome =
+      (body as OperationOutcome | undefined)?.resourceType ===
+      'OperationOutcome'
+        ? (body as OperationOutcome)
+        : undefined
+    if (response.status === 403 && type && interaction) {
       const { scopes } = await context()
-      if (!grants(scopes, type, interaction)) {
-        const rights = interaction === 'c' ? 'c' : 'rs'
-        throw new ScopeRefusedError(`patient/${type}.${rights}`)
+      if (!scopes.some((scope) => grants(scope, type, interaction))) {
+        const missing = missingScope(type, interaction, scopes, asked)
+        throw new ScopeRefusedError(missing.scope, missing.listed)
       }
     }
-    throw new FhirRequestError(response.status, what, outcome)
+    throw new FhirRequestError(
+      response.status,
+      what,
+      outcome,
+      hint(response.status, outcome, type, interaction, params),
+    )
   }
 
   /** Reads one resource by its id. */
@@ -187,28 +297,49 @@ export function createFhirClient(cookie: () => string | undefined) {
     type: T,
     id: string,
   ): Promise<ResourceOf<T>> {
-    return fhir(`Reading ${type}`, type, 'r', `/fhir/${type}/${checkId(id)}`)
+    return fhir(`Reading ${checkType(type)}`, `/fhir/${type}/${checkId(id)}`, {
+      type,
+      interaction: 'r',
+    })
   }
 
   /**
-   * Searches resources of one type. With a patient launch the EHR only returns what belongs
-   * to the launched patient. Follows the EHR's pages until `max` resources are collected.
+   * Searches resources of one type and also returns what the EHR sent along with them
+   * (`_include`, `_revinclude`). Follows the EHR's pages until `max` matches are collected.
    */
-  async function search<T extends ResourceType>(
+  async function searchWithIncluded<T extends ResourceType>(
     type: T,
-    params?: SearchParamsOf<T>,
-    { max = 200 }: { max?: number } = {},
-  ): Promise<ResourceOf<T>[]> {
-    const query = new URLSearchParams(params as Record<string, string>)
+    params: SearchParams = {},
+    { max = 200 }: SearchOptions = {},
+  ): Promise<{ matches: ResourceOf<T>[]; included: FhirResource[] }> {
+    const query = new URLSearchParams()
+    for (const [name, value] of Object.entries(params)) {
+      for (const one of Array.isArray(value) ? value : [value]) {
+        if (one !== undefined) query.append(name, one)
+      }
+    }
+    const names = [...new Set(query.keys())]
     let path: string | undefined =
-      `/fhir/${type}${query.size ? `?${query}` : ''}`
-    const found: ResourceOf<T>[] = []
+      `/fhir/${checkType(type)}${query.size ? `?${query}` : ''}`
+    const matches: ResourceOf<T>[] = []
+    const included = new Map<string, FhirResource>()
 
-    while (path && found.length < max) {
-      const bundle: Bundle = await fhir(`Searching ${type}`, type, 's', path)
-      for (const entry of bundle.entry ?? []) {
-        if (entry.resource?.resourceType === type) {
-          found.push(entry.resource as ResourceOf<T>)
+    while (path && matches.length < max) {
+      const bundle: Bundle = await fhir(`Searching ${type}`, path, {
+        type,
+        interaction: 's',
+        params: names,
+      })
+      for (const { resource, search } of bundle.entry ?? []) {
+        if (!resource || search?.mode === 'outcome') continue
+        const isMatch = search?.mode
+          ? search.mode === 'match'
+          : resource.resourceType === type
+        if (isMatch && resource.resourceType === type) {
+          matches.push(resource as ResourceOf<T>)
+        } else {
+          const other = resource as FhirResource
+          included.set(`${other.resourceType}/${other.id}`, other)
         }
       }
       // The next page is asked from the sidecar again, wherever the link claims to point.
@@ -220,58 +351,126 @@ export function createFhirClient(cookie: () => string | undefined) {
           ? target.pathname.slice(start) + target.search
           : undefined
     }
-    return found.slice(0, max)
+    return { matches: matches.slice(0, max), included: [...included.values()] }
+  }
+
+  /**
+   * Searches resources of one type and returns the matches. With a patient launch the EHR
+   * only returns what belongs to the launched patient.
+   */
+  async function search<T extends ResourceType>(
+    type: T,
+    params?: SearchParams,
+    options?: SearchOptions,
+  ): Promise<ResourceOf<T>[]> {
+    return (await searchWithIncluded(type, params, options)).matches
   }
 
   /** Creates a resource in the EHR and returns it as stored. */
   function create<R extends FhirResource>(resource: R): Promise<R> {
-    const type = resource.resourceType
-    return fhir(`Creating ${type}`, type, 'c', `/fhir/${type}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/fhir+json' },
-      body: JSON.stringify(resource),
-    })
+    const type = checkType(resource.resourceType)
+    return fhir(
+      `Creating ${type}`,
+      `/fhir/${type}`,
+      { type, interaction: 'c' },
+      { method: 'POST', body: resource },
+    )
   }
 
-  /** Files a document (a PDF, a text, an image) in the launched patient's record. */
-  async function createDocumentReference(
-    document: NewDocument,
-  ): Promise<DocumentReference> {
-    const bytes =
-      typeof document.data === 'string'
-        ? new TextEncoder().encode(document.data)
-        : document.data
-    if (bytes.byteLength > MAX_DOCUMENT_BYTES) {
-      throw new RangeError('The document is larger than 10 MiB.')
-    }
-    const { patient } = await context()
-    if (!patient) throw new NotLaunchedError()
-
-    const coding: Coding =
-      typeof document.type === 'string'
-        ? { system: DOCUMENT_KIND_SYSTEM, code: document.type }
-        : document.type
-
-    // The EHR sets the date itself and refuses a document that carries "date" or "context".
-    return create<DocumentReference>({
-      resourceType: 'DocumentReference',
-      status: 'current',
-      type: { coding: [coding] },
-      subject: { reference: `Patient/${patient}` },
-      description: document.description,
-      content: [
-        {
-          attachment: {
-            contentType: document.contentType,
-            title: document.title,
-            data: Buffer.from(bytes).toString('base64'),
-          },
-        },
-      ],
-    })
+  /**
+   * Replaces a resource in the EHR with the one given and returns it as stored. Read it,
+   * change the copy, pass the whole copy: its `id` says which one, its `meta.versionId` lets
+   * the EHR refuse the change when someone else changed it in between.
+   */
+  function update<R extends FhirResource>(resource: R): Promise<R> {
+    const type = checkType(resource.resourceType)
+    return fhir(
+      `Updating ${type}`,
+      `/fhir/${type}/${checkId(resource.id)}`,
+      { type, interaction: 'u' },
+      { method: 'PUT', body: resource, version: resource.meta?.versionId },
+    )
   }
 
-  return { context, read, search, create, createDocumentReference }
+  /** Deletes a resource. Pass the resource as it was read, or its type and id. */
+  async function remove(resource: FhirResource): Promise<void>
+  async function remove(
+    type: ResourceType,
+    id: string,
+    options?: RequestOptions,
+  ): Promise<void>
+  async function remove(
+    first: FhirResource | ResourceType,
+    id?: string,
+    options: RequestOptions = {},
+  ): Promise<void> {
+    const [type, key, version] =
+      typeof first === 'string'
+        ? [first, id, options.version]
+        : [first.resourceType, first.id, first.meta?.versionId]
+    await fhir(
+      `Deleting ${checkType(type)}`,
+      `/fhir/${type}/${checkId(key)}`,
+      { type, interaction: 'd' },
+      { method: 'DELETE', version },
+    )
+  }
+
+  /**
+   * Any other call to the clinic's FHIR API: an operation ("Patient/123/$everything"), a
+   * patch, a version read, the CapabilityStatement ("metadata"). `path` is relative to the
+   * FHIR base and can carry a query; it cannot name another address. Returns the answer's
+   * JSON, or undefined when the EHR sends none.
+   */
+  function request<T = unknown>(
+    method: Method,
+    path: string,
+    body?: unknown,
+    options: RequestOptions = {},
+  ): Promise<T> {
+    const target = fhirPath(path)
+    // Named for a refused scope only when the path plainly is "<Type>" or "<Type>/<id>".
+    const [first, second, ...more] = target.segments
+    const isId = second !== undefined && /^[A-Za-z0-9\-.]{1,64}$/.test(second)
+    const plain =
+      first !== undefined &&
+      /^[A-Z][A-Za-z]*$/.test(first) &&
+      more.length === 0 &&
+      (second === undefined || isId)
+    const interaction: Interaction | undefined = !plain
+      ? undefined
+      : method === 'GET'
+        ? isId
+          ? 'r'
+          : 's'
+        : method === 'POST'
+          ? isId
+            ? undefined
+            : 'c'
+          : !isId
+            ? undefined
+            : method === 'DELETE'
+              ? 'd'
+              : 'u'
+    const type = interaction ? first : undefined
+    return fhir(
+      `A ${method} request`,
+      target.path,
+      { type, interaction },
+      { method, body, version: options.version },
+    )
+  }
+
+  return {
+    context,
+    read,
+    search,
+    searchWithIncluded,
+    create,
+    update,
+    delete: remove,
+    request,
+  }
 }
 
 export type FhirClient = ReturnType<typeof createFhirClient>

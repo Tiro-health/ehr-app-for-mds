@@ -11,6 +11,11 @@
 // - loopback port: GET /session and ANY /fhir/<path>, identified by the browser's Cookie
 //   header, which the app forwards as is.
 //
+// Behind /fhir it answers as the Tiro EHR's FHIR API does: the resource types, interactions
+// and search parameters in facade-capabilities.mjs, a version (If-Match) on every update,
+// 404 for a type it does not serve, 403 for a scope that was not granted. A type the real EHR
+// does not serve but that has invented data in synthetic-data.mjs can be read and searched.
+//
 // Where it knowingly differs: GET /launch needs no EHR. It starts a session for an invented
 // patient straight away (`?patient=<id>` picks one, `?user=none` launches without a known
 // user, `?fail=<reason>` refuses the launch).
@@ -18,6 +23,7 @@
 import http from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { RESULT_PARAMS, SERVED } from './facade-capabilities.mjs'
 import {
   DOCUMENT_KIND_SYSTEM,
   encounters,
@@ -44,11 +50,12 @@ export const REASON_CODES = [
 const MAX_INLINE_BYTES = 10 * 1024 * 1024
 const FHIR_JSON = 'application/fhir+json; charset=utf-8'
 
-// Search parameters the clinic's FHIR API accepts. Anything else is answered with 400.
-const SEARCH_PARAMS = {
-  Patient: ['gender', 'family', 'given', 'identifier'],
-  Encounter: ['status', 'class'],
-  DocumentReference: ['patient', 'subject', 'identifier'],
+const INTERACTION_CODES = {
+  r: 'read',
+  s: 'search-type',
+  c: 'create',
+  u: 'update',
+  d: 'delete',
 }
 
 function readManifest() {
@@ -77,8 +84,6 @@ export async function startFakeSidecar(options = {}) {
 
   /** @type {Map<string, any>} */
   const sessions = new Map()
-  /** @type {any[]} */
-  const documents = []
   const app = new URL(appUrl)
 
   // The app asks for the scopes in smart.json; the clinic may grant fewer. The three launch
@@ -90,7 +95,15 @@ export async function startFakeSidecar(options = {}) {
   const noneGranted = !asked
     .filter(isResourceScope)
     .some((scope) => clinicGrants.includes(scope))
-  const syntheticResources = [...patients, ...encounters, ...otherResources]
+  // This instance's own copy of the invented data: what one preview changes, the next
+  // start has forgotten.
+  /** @type {any[]} */
+  const resources = structuredClone([
+    practitioner,
+    ...patients,
+    ...encounters,
+    ...otherResources,
+  ]).map((resource) => ({ meta: { versionId: '1' }, ...resource }))
 
   const sessionOf = (req) => {
     const header = req.headers.cookie ?? ''
@@ -222,85 +235,140 @@ export async function startFakeSidecar(options = {}) {
       issue: [{ severity: 'error', code, diagnostics }],
     })
 
-  const granted = (session, type, interaction) =>
-    session.scopes.some((scope) => {
+  // The level ("user" or "patient") at which the session may do this, or undefined.
+  const granted = (session, type, interaction) => {
+    const levels = session.scopes.flatMap((scope) => {
       const match = /^(patient|user|system)\/([A-Za-z*]+)\.([a-z*]+)$/.exec(
         scope,
       )
-      if (!match) return false
-      const [, , resource, rights] = match
-      if (resource !== '*' && resource !== type) return false
+      if (!match) return []
+      const [, level, resource, rights] = match
+      if (resource !== '*' && resource !== type) return []
       const letters =
-        rights === '*' ? 'cruds' : rights === 'read' ? 'rs' : rights
-      return letters.includes(interaction)
+        rights === '*'
+          ? 'cruds'
+          : rights === 'read'
+            ? 'rs'
+            : rights === 'write'
+              ? 'cud'
+              : rights
+      return letters.includes(interaction) ? [level] : []
     })
+    return levels.find((level) => level !== 'patient') ?? levels[0]
+  }
 
-  const inCompartment = (session, resource) => {
+  // A patient-level scope reaches only what belongs to the launched patient.
+  const reachable = (session, level, resource) => {
+    if (level !== 'patient') return true
     const patient = `Patient/${session.patient}`
     if (resource.resourceType === 'Patient') {
       return resource.id === session.patient
     }
-    return (
-      resource.subject?.reference === patient ||
-      resource.patient?.reference === patient
+    return [resource.subject, resource.patient, resource.beneficiary].some(
+      (reference) => reference?.reference === patient,
     )
   }
 
-  const store = (type) =>
-    type === 'DocumentReference'
-      ? documents
-      : syntheticResources.filter((r) => r.resourceType === type)
+  // What the pretend EHR serves: the real EHR's types, plus any type that has invented data.
+  const serving = (type) =>
+    SERVED[type] ??
+    (resources.some((r) => r.resourceType === type)
+      ? { interactions: 'rs', params: ['_id', 'patient', 'subject'] }
+      : undefined)
 
+  const refersTo = (reference, value) =>
+    reference?.reference === value ||
+    reference?.reference?.endsWith(`/${value}`)
+
+  const onDate = (start, value) => {
+    const [, prefix = 'eq', date] = /^(eq|ge|le|gt|lt)?(.+)$/.exec(value) ?? []
+    if (!date || !start) return false
+    const day = start.slice(0, date.length)
+    return {
+      eq: day === date,
+      ge: day >= date,
+      le: day <= date,
+      gt: day > date,
+      lt: day < date,
+    }[prefix]
+  }
+
+  // Exact matches only, as in the real EHR.
   const matches = (resource, name, value) => {
-    switch (`${resource.resourceType}.${name}`) {
-      case 'Patient.gender':
-        return resource.gender === value
-      case 'Patient.family':
+    switch (name) {
+      case '_id':
+        return resource.id === value
+      case 'gender':
+      case 'status':
+        return resource[name] === value
+      case 'family':
         return resource.name?.some((n) => n.family === value)
-      case 'Patient.given':
+      case 'given':
         return resource.name?.some((n) => n.given?.includes(value))
-      case 'Patient.identifier':
-      case 'DocumentReference.identifier':
-        return resource.identifier?.some(
-          (i) => i.value === value || `${i.system}|${i.value}` === value,
-        )
-      case 'Encounter.status':
-        return resource.status === value
-      case 'Encounter.class':
+      case 'identifier':
+        return [resource.identifier ?? []]
+          .flat()
+          .some((i) => i.value === value || `${i.system}|${i.value}` === value)
+      case 'class':
         return resource.class?.code === value
-      case 'DocumentReference.patient':
-      case 'DocumentReference.subject':
-        return (
-          resource.subject?.reference === value ||
-          resource.subject?.reference === `Patient/${value}`
+      case 'code':
+        return resource.code?.coding?.some(
+          (c) => c.code === value || `${c.system}|${c.code}` === value,
+        )
+      case 'date':
+      case 'date-start':
+        return onDate(resource.period?.start, value)
+      case 'patient':
+        return [resource.subject, resource.patient, resource.beneficiary].some(
+          (reference) => refersTo(reference, value),
         )
       default:
-        return false
+        return refersTo(resource[name], value)
     }
   }
 
-  const search = (session, type, url, res, base) => {
-    const all = store(type)
+  // The real EHR tells an app as little as this about a type it does not serve (404) or a
+  // request the granted scopes do not cover (403).
+  const refused = (res, status) =>
+    outcome(
+      res,
+      status,
+      'processing',
+      `The request could not be completed. Reference: ${randomUUID()}`,
+    )
 
-    let page = 1
-    let found = all.filter((r) => inCompartment(session, r))
+  const unsupported = (res, method) =>
+    outcome(
+      res,
+      400,
+      'not-supported',
+      `Invalid request: The FHIR endpoint on this server does not know how to handle ${method} operation`,
+    )
+
+  const search = (session, level, type, url, res, base) => {
+    let count = pageSize
+    let offset = 0
+    let found = resources.filter(
+      (r) => r.resourceType === type && reachable(session, level, r),
+    )
     for (const [name, value] of url.searchParams) {
-      if (name === '_page') {
-        page = Number(value) || 1
-      } else if (SEARCH_PARAMS[type]?.includes(name)) {
+      if (name === '_count') count = Number(value) || pageSize
+      else if (name === '_offset') offset = Number(value) || 0
+      else if (RESULT_PARAMS.includes(name)) continue
+      else if (serving(type).params.includes(name)) {
         found = found.filter((r) => matches(r, name, value))
       } else {
-        return outcome(res, 400, 'invalid', `Unknown parameter "${name}".`)
+        return outcome(res, 400, 'processing', 'unsupported search parameter')
       }
     }
 
-    const start = (page - 1) * pageSize
     const link = [
       { relation: 'self', url: `${base}${url.pathname}${url.search}` },
     ]
-    if (start + pageSize < found.length) {
+    if (offset + count < found.length) {
       const next = new URLSearchParams(url.searchParams)
-      next.set('_page', String(page + 1))
+      next.set('_count', String(count))
+      next.set('_offset', String(offset + count))
       link.push({ relation: 'next', url: `${base}${url.pathname}?${next}` })
     }
     json(res, 200, {
@@ -308,7 +376,7 @@ export async function startFakeSidecar(options = {}) {
       type: 'searchset',
       total: found.length,
       link,
-      entry: found.slice(start, start + pageSize).map((resource) => ({
+      entry: found.slice(offset, offset + count).map((resource) => ({
         fullUrl: `${base}/fhir/${type}/${resource.id}`,
         resource,
         search: { mode: 'match' },
@@ -316,68 +384,189 @@ export async function startFakeSidecar(options = {}) {
     })
   }
 
-  const create = (session, type, body, res, base) => {
-    let resource
-    try {
-      resource = JSON.parse(body)
-    } catch {
-      return outcome(res, 400, 'invalid', 'The body is not JSON.')
-    }
-    if (type !== 'DocumentReference' || resource.resourceType !== type) {
-      return outcome(res, 404, 'not-supported', `Cannot create ${type} here.`)
+  // What the real EHR checks before it files a document.
+  const documentProblem = (res, resource) => {
+    const problem = (status, code, text) => {
+      outcome(res, status, code, text)
+      return true
     }
     if ('date' in resource || 'context' in resource) {
-      return outcome(res, 422, 'invalid', 'Leave out "date" and "context".')
+      return problem(422, 'invalid', 'Leave out "date" and "context".')
     }
     const kind = resource.type?.coding?.find(
       (c) => c.system === DOCUMENT_KIND_SYSTEM && c.code,
     )
     if (!kind) {
-      return outcome(res, 422, 'required', 'A document kind is required.')
-    }
-    if (!inCompartment(session, resource)) {
-      return outcome(res, 403, 'forbidden', 'Not the launched patient.')
+      return problem(422, 'required', 'A document kind is required.')
     }
     const data = resource.content?.[0]?.attachment?.data
     if (typeof data !== 'string') {
-      return outcome(res, 422, 'required', 'The file content is required.')
+      return problem(422, 'required', 'The file content is required.')
     }
     if (Buffer.byteLength(data, 'base64') > MAX_INLINE_BYTES) {
-      return outcome(res, 413, 'too-long', 'The file is larger than 10 MiB.')
+      return problem(413, 'too-long', 'The file is larger than 10 MiB.')
     }
+    return false
+  }
+
+  const parsed = (res, type, body) => {
+    try {
+      const resource = JSON.parse(body)
+      if (resource?.resourceType === type) return resource
+    } catch {
+      // answered below
+    }
+    outcome(res, 400, 'invalid', `The body is not a ${type}.`)
+    return undefined
+  }
+
+  // The version a write is based on, from If-Match: W/"<versionId>".
+  const basedOn = (req, res, required) => {
+    const header = req.headers['if-match']
+    if (!header) {
+      if (!required) return { version: undefined }
+      outcome(
+        res,
+        428,
+        'processing',
+        'This server requires If-Match on every update: send the ETag of the version you read, as W/"<versionId>"',
+      )
+      return undefined
+    }
+    const match = /^(?:W\/)?"([1-9][0-9]{0,8})"$/.exec(header.trim())
+    if (match) return { version: match[1] }
+    outcome(res, 400, 'processing', 'If-Match must name one version.')
+    return undefined
+  }
+
+  const stale = (res, version) =>
+    outcome(
+      res,
+      412,
+      'processing',
+      `The resource has changed since version ${version}; read it again and retry`,
+    )
+
+  const create = (session, level, type, body, res, base) => {
+    const resource = parsed(res, type, body)
+    if (!resource) return
+    if (type === 'DocumentReference' && documentProblem(res, resource)) return
+    if (!reachable(session, level, resource)) return refused(res, 403)
     const saved = {
       ...resource,
       id: randomUUID(),
       meta: { versionId: '1', lastUpdated: new Date().toISOString() },
     }
-    documents.push(saved)
+    resources.push(saved)
     json(res, 201, saved, {
-      location: `${base}/fhir/DocumentReference/${saved.id}`,
+      location: `${base}/fhir/${type}/${saved.id}`,
+      etag: 'W/"1"',
     })
   }
+
+  const update = (session, level, type, id, req, body, res) => {
+    const resource = parsed(res, type, body)
+    if (!resource) return
+    if (resource.id !== id) {
+      return outcome(res, 400, 'processing', `${type}.id must equal the id.`)
+    }
+    const based = basedOn(req, res, true)
+    if (!based) return
+    const at = resources.findIndex(
+      (r) => r.resourceType === type && r.id === id,
+    )
+    if (at < 0 || !reachable(session, level, resources[at])) {
+      return refused(res, 404)
+    }
+    if (!reachable(session, level, resource)) return refused(res, 403)
+    const current = resources[at].meta.versionId
+    if (based.version !== current) return stale(res, based.version)
+    const versionId = String(Number(current) + 1)
+    resources[at] = {
+      ...resource,
+      meta: { versionId, lastUpdated: new Date().toISOString() },
+    }
+    json(res, 200, resources[at], { etag: `W/"${versionId}"` })
+  }
+
+  const remove = (session, level, type, id, req, res) => {
+    const based = basedOn(req, res, serving(type).deleteNeedsVersion === true)
+    if (!based) return
+    const at = resources.findIndex(
+      (r) => r.resourceType === type && r.id === id,
+    )
+    if (at < 0 || !reachable(session, level, resources[at])) {
+      return refused(res, 404)
+    }
+    const current = resources[at].meta.versionId
+    if (based.version && based.version !== current) {
+      return stale(res, based.version)
+    }
+    resources.splice(at, 1)
+    res.writeHead(204, { 'cache-control': 'no-store' })
+    res.end()
+  }
+
+  const capabilities = (res) =>
+    json(res, 200, {
+      resourceType: 'CapabilityStatement',
+      status: 'active',
+      date: '2026-11-14',
+      kind: 'instance',
+      fhirVersion: '4.0.1',
+      format: ['application/fhir+json'],
+      rest: [
+        {
+          mode: 'server',
+          resource: Object.entries(SERVED).map(([type, served]) => ({
+            type,
+            interaction: [...served.interactions].map((letter) => ({
+              code: INTERACTION_CODES[letter],
+            })),
+            searchParam: served.params.map((name) => ({ name })),
+          })),
+        },
+      ],
+    })
 
   const fhir = (session, req, url, body, res) => {
     const base = `http://${req.headers.host}`
     const [type, id, ...rest] = url.pathname.split('/').slice(2)
-    if (!type || rest.length > 0) {
-      return outcome(res, 404, 'not-found', 'Unknown address.')
+    if (req.method === 'GET' && type === 'metadata' && !id) {
+      return capabilities(res)
     }
-    const interaction =
-      req.method === 'POST' ? 'c' : req.method === 'GET' ? (id ? 'r' : 's') : ''
-    if (!interaction) {
-      return outcome(res, 405, 'not-supported', 'Method not supported.')
-    }
-    if (!granted(session, type, interaction)) {
-      return outcome(res, 403, 'forbidden', 'Insufficient scope.')
-    }
-    if (interaction === 'c') return create(session, type, body, res, base)
-    if (interaction === 's') return search(session, type, url, res, base)
+    const served = type ? serving(type) : undefined
+    if (!served) return refused(res, 404)
 
-    const resource = store(type).find((r) => r.id === id)
-    if (!resource || !inCompartment(session, resource)) {
-      return outcome(res, 404, 'not-found', `${type} not found.`)
+    const interaction =
+      rest.length > 0 || id?.startsWith('$') || id?.startsWith('_')
+        ? undefined
+        : ({ GET: id ? 'r' : 's', POST: id ? undefined : 'c' }[req.method] ??
+          (id ? { PUT: 'u', DELETE: 'd' }[req.method] : undefined))
+    if (!interaction || !served.interactions.includes(interaction)) {
+      return unsupported(res, req.method)
     }
-    json(res, 200, resource)
+    const level = granted(session, type, interaction)
+    if (!level) return refused(res, 403)
+
+    if (interaction === 'c') {
+      return create(session, level, type, body, res, base)
+    }
+    if (interaction === 's') {
+      return search(session, level, type, url, res, base)
+    }
+    if (interaction === 'u') {
+      return update(session, level, type, id, req, body, res)
+    }
+    if (interaction === 'd') return remove(session, level, type, id, req, res)
+
+    const resource = resources.find(
+      (r) => r.resourceType === type && r.id === id,
+    )
+    if (!resource || !reachable(session, level, resource)) {
+      return refused(res, 404)
+    }
+    json(res, 200, resource, { etag: `W/"${resource.meta.versionId}"` })
   }
 
   const apiServer = http.createServer((req, res) => {

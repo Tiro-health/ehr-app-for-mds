@@ -38,22 +38,46 @@ in one sentence that this app cannot do that, and that Tiro can advise.
 
 ## What the app can read and write
 
-| Resource            | Read one | Search | Create | Search parameters (exact match)           |
-| ------------------- | -------- | ------ | ------ | ----------------------------------------- |
-| `Patient`           | yes      | yes    | no     | `gender`, `family`, `given`, `identifier` |
-| `Encounter`         | yes      | yes    | no     | `status`, `class`                         |
-| `DocumentReference` | yes      | yes    | yes    | `patient`, `subject`, `identifier`        |
+The `fhir` helper works with **any FHIR resource type and any search parameter**: it holds no
+list of its own. What exists is decided by the EHR, and what this app may use is decided by
+its permissions (see "Permissions"). So before building on a type, find out, do not assume:
 
-- A search parameter that is not in the table is refused by the EHR (status 400). There is no
-  "contains" or "starts with": filter and sort further in the server function.
-- The app is launched for one patient. Searches return only that patient's data; you do not
-  pass the patient yourself (except `DocumentReference`, where `patient` is allowed).
-- A document is filed with `fhir.createDocumentReference()`: the file inline, at most 10 MiB,
+- `await fhir.request('GET', 'metadata')` returns the EHR's CapabilityStatement: per resource
+  type the interactions (`read`, `search-type`, `create`, `update`, `delete`) and the search
+  parameters it accepts. The local preview answers with the same list as the real EHR did when
+  `dev/facade-capabilities.mjs` was written. Use it while building, not in a page.
+- A type the EHR does not serve answers status 404; an interaction it does not have for a
+  type, or an operation such as `$everything`, answers 400. The error message says which.
+  Tell the clinician it is not available instead of working around it.
+
+What the Tiro EHR served when this was written (it changes; the CapabilityStatement decides):
+
+| Resource                             | Read, search | Create | Update | Delete | Search parameters                                                    |
+| ------------------------------------ | ------------ | ------ | ------ | ------ | -------------------------------------------------------------------- |
+| `Patient`                            | yes          | no     | no     | no     | `_id`, `family`, `given`, `gender`, `identifier`                     |
+| `Practitioner`                       | yes          | no     | no     | no     | `_id`, `family`, `given`, `identifier`                               |
+| `Encounter`                          | yes          | yes    | yes    | yes    | `_id`, `status`, `class`, `date`, `date-start`, `patient`, `subject` |
+| `DocumentReference`                  | yes          | yes    | no     | no     | `_id`, `identifier`, `patient`, `subject`                            |
+| `MedicationRequest`                  | yes          | yes    | yes    | no     | `_id`, `status`, `identifier`, `encounter`, `patient`, `subject`     |
+| `Task`                               | yes          | yes    | yes    | no     | `_id`, `status`, `code`, `identifier`, `focus`, `patient`            |
+| `Basic` (app state)                  | yes          | yes    | yes    | yes    | `_id`, `code`, `subject`                                             |
+| `Coverage`, `Claim`, `ClaimResponse` | yes          | yes    | no     | no     | see the CapabilityStatement                                          |
+
+- Text and code parameters match exactly, capitals included. There is no "contains" or "starts
+  with": filter and sort further in the server function. A parameter the EHR does not know is
+  refused (status 400); the error lists the parameter names that were sent.
+- The app is launched for one patient. With a `patient/...` permission, searches return only
+  that patient's data; you do not pass the patient yourself.
+- **Updating**: read the resource, change the copy, pass the whole copy to `fhir.update()`.
+  The EHR refuses an update that does not carry the version that was read (status 428) and one
+  made on an outdated copy (status 412): read again and retry. Never build the resource to
+  update from scratch.
+- **Deleting**: `fhir.delete(resource)` with the resource as read. Ask the clinician before
+  building anything that deletes from the record.
+- **Filing a document**: `fhir.createDocumentReference()`: the file inline, at most 10 MiB,
   with a `type` code from the clinic's document kinds (`urn:tiro-health:document-kind`). Do
   not set `date` or `context`; the EHR refuses them.
-- For any other resource type, try it in a server function against the local preview and the
-  real EHR. If the EHR answers "not found" or "not supported", it does not serve that type:
-  tell the clinician instead of working around it.
+- The EHR does not send related resources along with a search (`_include`) today.
 
 ## The `fhir` helper (server only)
 
@@ -66,7 +90,33 @@ const ctx = await fhir.context()
 // patient / encounter / practitioner are ids, or null
 
 const patient = await fhir.read('Patient', ctx.patient)
+
+// Any parameter name. A list repeats the parameter ("all of these");
+// a comma inside one value means "any of these".
 const finished = await fhir.search('Encounter', { status: 'finished' })
+const recent = await fhir.search(
+  'Encounter',
+  { date: 'ge2026-01-01' },
+  { max: 50 },
+)
+
+// The matches plus whatever the EHR sent along (_include, _revinclude).
+const { matches, included } = await fhir.searchWithIncluded('Encounter', {
+  _include: 'Encounter:subject',
+})
+
+const made = await fhir.create<Basic>({
+  resourceType: 'Basic',
+  code: { text: 'settings' },
+})
+const changed = await fhir.update({ ...made, code: { text: 'new settings' } })
+await fhir.delete(changed) // or fhir.delete('Basic', id, { version })
+
+// Anything else under the FHIR base: an operation, a patch, a version read.
+// The path is relative; it cannot name another address.
+// Today the Tiro EHR has none of those; `metadata` is the one use.
+const statement = await fhir.request('GET', 'metadata')
+
 const saved = await fhir.createDocumentReference({
   type: 'report', // a code from the clinic's document kinds
   title: 'Score result',
@@ -76,7 +126,7 @@ const saved = await fhir.createDocumentReference({
 ```
 
 Resources are typed with FHIR R4 types (`import type { Patient } from 'fhir/r4'`). Never write
-your own resource types.
+your own resource types. `search` follows the EHR's pages by itself, up to `max` (200).
 
 It throws three kinds of error (from `@/lib/fhir.server`):
 
@@ -85,7 +135,9 @@ It throws three kinds of error (from `@/lib/fhir.server`):
 - `ScopeRefusedError`: the app was not granted the permission this call needs. `error.scope`
   names it (see "Permissions").
 - `FhirRequestError`: any other refusal; `error.status` is the HTTP status. Its message is
-  safe to show; do not print `error.outcome`.
+  safe to show and says what to do where it can (an unknown search parameter, a type the EHR
+  does not serve, a missing or outdated version). Never show or log `error.outcome`: it is the
+  EHR's own text and can contain ids.
 
 ## Building a feature: the pattern
 
@@ -158,7 +210,9 @@ Existing hooks: `usePatient()` gives `{ patient, launched, isLoading, error }`;
 
 - A scope is `patient/<ResourceType>.<letters>`: `r` read one, `s` search, `c` create,
   `u` update, `d` delete. `patient/Observation.rs` reads and searches the launched patient's
-  observations; `patient/DocumentReference.c` files documents.
+  observations; `patient/DocumentReference.c` files documents. `user/<ResourceType>.<letters>`
+  is for data that does not belong to one patient, such as the app's own saved state
+  (`user/Basic.cruds`).
 - `smart.json` is the app's own record of what it needs, and the local preview grants exactly
   what it lists. **The hosting platform does not read it yet**: online, the app gets what Tiro
   registered for it in the EHR and the clinic approved, which can be less than the app asks.
@@ -168,7 +222,8 @@ Existing hooks: `usePatient()` gives `{ patient, launched, isLoading, error }`;
   least the tool needs.
 - `requiresPatient` is `true` when the tool is about one patient. Leave the first three scopes
   and `offline_access` as they are.
-- A `ScopeRefusedError` names the scope that was not granted. Never catch it to hide it. Build
+- A `ScopeRefusedError` names the scope that was not granted, in the words of `smart.json`
+  when that already lists it (then only Tiro's registration is missing). Never catch it to hide it. Build
   the page so the rest still works when one kind of data is refused, and say which is missing.
 - `fhir.context()` can return `practitioner: null`: the EHR does not always say who is signed
   in. Do not assume a practitioner.
@@ -183,8 +238,12 @@ Existing hooks: `usePatient()` gives `{ patient, launched, isLoading, error }`;
 - http://127.0.0.1:3000 shows the app **as opened directly**, without a patient.
 
 The pretend EHR grants exactly the scopes in `smart.json`, so a missing scope shows up locally.
-To preview a resource type that is not there yet, add invented resources to `otherResources` in
-`dev/synthetic-data.mjs`, each pointing at its patient with `subject` or `patient`.
+It serves the same resource types, interactions and search parameters as the real EHR
+(`dev/facade-capabilities.mjs`) and forgets every change when it restarts. To have data of
+another type in the preview, add invented resources to `otherResources` in
+`dev/synthetic-data.mjs`, each pointing at its patient with `subject` or `patient`. A type the
+real EHR does not serve can be read and searched in the preview that way, but will answer 404
+online: say so to the clinician.
 
 `pnpm test:e2e` builds the app and drives it in a real browser behind the pretend EHR. Run it
 after changing anything that uses EHR data.
