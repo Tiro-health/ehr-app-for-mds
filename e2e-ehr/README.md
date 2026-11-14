@@ -23,6 +23,35 @@ bash "$EHR_REPO/smart-sidecar/e2e/stack.sh" down
 until the first one has ended to see the page still load the patient. `pnpm test:ehr --quick`
 skips that wait.
 
+## Launching by hand
+
+To click through a launch yourself, from the EHR's own screens:
+
+```bash
+export EHR_REPO=/path/to/ehr
+pnpm ehr:up        # starts the EHR stack if needed, the sidecar and the app, and leaves them running
+pnpm ehr:reload    # after a change to the app: rebuilds it and restarts its container
+pnpm ehr:down      # stops the sidecar, the app and the EHR stack
+```
+
+`pnpm ehr:up` ends by printing these steps:
+
+1. Sign in to the EHR at http://localhost:3001/login as the synthetic clinician
+   `sidecar-clinician@test.local`, password `password123`. No second factor is asked.
+2. Open a patient and go to the Apps tab (the command prints the address of one).
+3. Click "Openen" on "Dev sidecar app". The app opens at http://localhost:8080/ with that
+   patient and their encounters.
+
+Good to know:
+
+- The EHR's switcher of test users cannot launch an app; sign in as above.
+- `pnpm ehr:reload` keeps you launched: the session lives in the sidecar, which is not
+  restarted. Refresh the page to see the change.
+- Every `pnpm ehr:up` gives the sidecar a new key and restarts it, so earlier sessions end:
+  launch again from the EHR. `pnpm test:ehr` does the same and stops the sidecar and the app
+  when it is done; run `pnpm ehr:up` again afterwards.
+- `pnpm dev` cannot run at the same time: its pretend EHR and the real EHR both use port 3001.
+
 What runs where:
 
 | Piece                 | Where                                                                                                                                |

@@ -14,7 +14,10 @@
     "start": "node .output/server/index.mjs",
     "check:ehr": "node scripts/check-ehr-contract.mjs",
     "test:e2e": "pnpm build && playwright test",
-    "test:ehr": "node e2e-ehr/run.mjs"
+    "test:ehr": "node e2e-ehr/run.mjs",
+    "ehr:up": "node e2e-ehr/run.mjs up",
+    "ehr:reload": "node e2e-ehr/run.mjs reload",
+    "ehr:down": "node e2e-ehr/run.mjs down"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
