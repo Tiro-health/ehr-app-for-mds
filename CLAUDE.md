@@ -110,7 +110,8 @@ e2e-ehr/               For Tiro's developers: the same test against the real EHR
 - **Browser-only code**: pages also render on the server, where `window`, `localStorage` and
   IndexedDB do not exist. Touch them only in `useEffect` or event handlers, never while rendering.
 - **Server functions**: only for EHR data, following "Patient data from the EHR". They never
-  store anything, and data the clinician types into the app is never sent to the server.
+  store anything. Data the clinician types into the app goes to the server only to be saved in
+  the EHR (a create or update), and is never kept there.
 - **State**: React state in the page. EHR data comes from the hooks in `@/hooks/ehr` (TanStack
   Query). No other global state library unless a skill introduces one.
 - **Tests**: every page gets a small test next to it that renders it and checks the heading.
