@@ -141,53 +141,56 @@ It throws three kinds of error (from `@/lib/fhir.server`):
 
 ## Building a feature: the pattern
 
+Pages ask the EHR themselves, through the hooks in `@/hooks/ehr`. There is one small set of
+server functions behind them (`src/lib/ehr.functions.ts`) that works for every resource type;
+**a feature normally needs no new server code.**
+
 Example: "show the patient's last three encounters".
 
-1. **A server function** in `src/lib/ehr.functions.ts` (or a new `src/lib/<topic>.functions.ts`):
+1. **In the page** (or a small hook of its own next to it):
 
-   ```ts
-   export const getLastEncounters = createServerFn({ method: 'POST' }).handler(
-     () =>
-       fromEhr(async () => {
-         const encounters = await fhir.search('Encounter')
-         return encounters
-           .sort((a, b) =>
-             (b.period?.start ?? '').localeCompare(a.period?.start ?? ''),
-           )
-           .slice(0, 3)
-       }),
-   )
+   ```tsx
+   const { resources, launched, isLoading, error } = useFhirSearch('Encounter')
+   const lastThree = [...resources]
+     .sort((a, b) =>
+       (b.period?.start ?? '').localeCompare(a.period?.start ?? ''),
+     )
+     .slice(0, 3)
    ```
 
-   Use `method: 'POST'` so the answer is never cached. Return only what the page shows.
-
-2. **A hook** in `src/hooks/ehr.ts`, next to `usePatient()` and `useEncounters()`:
-
-   ```ts
-   export const lastEncountersQuery = queryOptions({
-     queryKey: ['ehr', 'last-encounters'],
-     queryFn: () => getLastEncounters(),
-   })
-   export function useLastEncounters() {
-     const { data, ...rest } = unwrap(useQuery(lastEncountersQuery))
-     return { encounters: data ?? [], ...rest }
-   }
-   ```
-
-3. **The page** uses the hook. `launched` is false when the app was opened directly; decide
-   with the clinician what the page shows then (nothing, or the tool with manual input). A page
-   that makes no sense without a patient can send the visitor to the explanation page:
+   `launched` is false when the app was opened directly; decide with the clinician what the
+   page shows then (nothing, or the tool with manual input). A page that makes no sense
+   without a patient can send the visitor to the explanation page:
    `<Navigate to="/not-launched" search={{ reason: 'not-from-ehr' }} />`.
 
-4. **Preload** in the route (`loader: ({ context }) => context.queryClient.prefetchQuery(lastEncountersQuery)`)
-   so the data is there when the page first appears.
+2. **Preload** in the route, so the data is there when the page first appears:
+   `loader: ({ context }) => context.queryClient.prefetchQuery(searchQuery('Encounter'))`.
+   Use the same type, parameters and options as the hook, or it fetches twice.
 
-5. **Test** the page with the server function mocked, as in `src/pages/home.test.tsx`, using
+3. **Test** the page with `@/lib/ehr.functions` mocked, as in `src/pages/home.test.tsx`, using
    the invented data from `dev/synthetic-data.mjs`. Use `patientName()`, `formatDate()` and
    `encounterTitle()` from `@/lib/fhir/format` to show names and dates.
 
-Existing hooks: `usePatient()` gives `{ patient, launched, isLoading, error }`;
-`useEncounters()` gives `{ encounters, launched, isLoading, error }`, most recent first.
+The hooks:
+
+| Hook                                                    | Gives                                                                                                      |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `useEhrContext()`                                       | `{ context }`: ids of the launched patient, encounter and user, and the granted scopes                     |
+| `usePatient()`                                          | `{ patient }`: the launched patient                                                                        |
+| `useEncounters()`                                       | `{ encounters }`: the launched patient's encounters, most recent first                                     |
+| `useFhirRead(type, id)`                                 | `{ resource }`: one resource; waits while `id` is still unknown                                            |
+| `useFhirSearch(type, params?, { max }?)`                | `{ resources, included }`                                                                                  |
+| `useFhirCreate()`, `useFhirUpdate()`, `useFhirDelete()` | a mutation: `mutate(resource)`, `isPending`, `error`; afterwards all EHR data on the page is fetched again |
+
+All reading hooks also give `launched`, `isLoading` and `error`. For an update or delete, pass
+the resource as it was read (changed, for an update): it carries the version the EHR checks.
+
+Write a server function of your own (in a new `src/lib/<topic>.functions.ts`, with
+`createServerFn({ method: 'POST' })`, `fromEhr()` and the `fhir` helper) only when the server
+must do the work: filing a document (`fhir.createDocumentReference`), `fhir.request()`, or
+combining several calls into one small answer. Everything a hook fetches reaches the browser
+whole, so for a large or sensitive resource of which the page shows one field, trim it in a
+server function instead.
 
 ## Permissions: `smart.json`
 

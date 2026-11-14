@@ -1,13 +1,17 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { appConfig } from '@/app.config'
-import { getEncounters, getPatient } from '@/lib/ehr.functions'
+import { ehrContext, ehrRead, ehrSearch } from '@/lib/ehr.functions'
 import { encounters, patients } from '../../dev/synthetic-data.mjs'
 import { HomePage } from './home'
 
 vi.mock('@/lib/ehr.functions', () => ({
-  getPatient: vi.fn(),
-  getEncounters: vi.fn(),
+  ehrContext: vi.fn(),
+  ehrRead: vi.fn(),
+  ehrSearch: vi.fn(),
+  ehrCreate: vi.fn(),
+  ehrUpdate: vi.fn(),
+  ehrDelete: vi.fn(),
 }))
 
 function renderHome() {
@@ -22,8 +26,8 @@ function renderHome() {
 }
 
 test('shows the app name when opened without the EHR', async () => {
-  vi.mocked(getPatient).mockResolvedValue({ launched: false })
-  vi.mocked(getEncounters).mockResolvedValue({ launched: false })
+  vi.mocked(ehrContext).mockResolvedValue({ launched: false })
+  vi.mocked(ehrSearch).mockResolvedValue({ launched: false })
   renderHome()
 
   expect(
@@ -34,17 +38,33 @@ test('shows the app name when opened without the EHR', async () => {
 })
 
 test('shows the patient and encounters when opened from the EHR', async () => {
-  vi.mocked(getPatient).mockResolvedValue({
+  vi.mocked(ehrContext).mockResolvedValue({
     launched: true,
-    data: patients[0],
+    data: {
+      patient: patients[0]!.id!,
+      encounter: null,
+      practitioner: null,
+      fhirUser: null,
+      fhirVersion: 'R4',
+      scopes: [],
+      intent: null,
+    },
   })
-  vi.mocked(getEncounters).mockResolvedValue({
+  vi.mocked(ehrRead).mockResolvedValue({ launched: true, data: patients[0]! })
+  vi.mocked(ehrSearch).mockResolvedValue({
     launched: true,
-    data: encounters.slice(0, 3),
+    data: { matches: encounters.slice(0, 3), included: [] },
   })
   renderHome()
 
   expect(await screen.findByText('Jeanne Voorbeeld')).toBeInTheDocument()
   const list = await screen.findByRole('list', { name: 'Encounters' })
   expect(list.children).toHaveLength(3)
+  // The page said what it wanted; the server functions know no resource type.
+  expect(ehrRead).toHaveBeenCalledWith({
+    data: { type: 'Patient', id: patients[0]!.id },
+  })
+  expect(vi.mocked(ehrSearch).mock.calls[0]?.[0]).toMatchObject({
+    data: { type: 'Encounter' },
+  })
 })

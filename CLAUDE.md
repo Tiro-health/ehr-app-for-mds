@@ -84,9 +84,9 @@ explains how and what to tell the clinician.
 ```
 src/
   app.config.ts        App name and tagline. Edit this to rename the app.
-  hooks/ehr.ts         usePatient(), useEncounters(): EHR data for pages.
+  hooks/ehr.ts         usePatient(), useFhirSearch(), useFhirRead(), ...: EHR data for pages.
   lib/fhir.server.ts   The `fhir` helper. Server only.
-  lib/ehr.functions.ts Server functions that fetch EHR data for the hooks.
+  lib/ehr.functions.ts Server functions behind the hooks. They work for any resource type.
   router.tsx           Router setup. Rarely touched.
   styles.css           Tailwind and theme variables (colours live here).
   routes/              One file per URL. __root.tsx is the HTML shell and the shared header.
