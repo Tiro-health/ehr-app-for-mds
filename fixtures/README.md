@@ -36,3 +36,9 @@ Where it differs:
 4. R4 Encounter has no `date-start` search parameter.
 5. EHR profiles (EHRPatient and the rest) are not loaded, so writes are not validated.
 6. Update with If-Match and SMART-required mode were not tested.
+
+## Bundle links
+
+candle starts with `--url http://fhir-candle:5826`, the address the sidecar dev mode uses on the
+compose network. Bundle links (`self`, `next`, `fullUrl`) therefore read `fhir-candle:5826` when
+you fetch them from the host. Requests to `localhost:5826` still work; only the links differ.

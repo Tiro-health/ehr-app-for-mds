@@ -2,11 +2,12 @@
 # Start: docker compose up. FHIR R4 at http://localhost:5826/fhir/r4, R5 at /fhir/r5.
 # The data is in memory: restart the container to reset it to the fixtures.
 services:
-  fhir:
+  fhir-candle:
     # Pinned by digest: fhir-candle publishes no version tags. This is version 0.2026.708.1349.
     image: ghcr.io/fhir/fhir-candle@sha256:3c7f66cde51c8bfc56a03142e8fa3a9b0ded67c4329f1fd4429a0245f95c07fb
     command:
       - --port=5826
+      - --url=http://fhir-candle:5826
       - --headless
       - --r4=r4
       - --r5=r5
