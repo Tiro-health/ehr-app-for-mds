@@ -1,0 +1,21 @@
+{
+  "resourceType": "Patient",
+  "id": "patient-2",
+  "identifier": [
+    {
+      "system": "urn:example:synthetic",
+      "value": "SYN-0002"
+    }
+  ],
+  "name": [
+    {
+      "use": "official",
+      "family": "Specimen",
+      "given": [
+        "Karel"
+      ]
+    }
+  ],
+  "gender": "male",
+  "birthDate": "1971-11-03"
+}

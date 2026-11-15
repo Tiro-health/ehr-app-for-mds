@@ -1,0 +1,16 @@
+# Local FHIR server for development: fhir-candle loaded with the synthetic fixtures.
+# Start: docker compose up. FHIR R4 at http://localhost:5826/fhir/r4, R5 at /fhir/r5.
+# The data is in memory: restart the container to reset it to the fixtures.
+services:
+  fhir:
+    image: ghcr.io/fhir/fhir-candle:latest
+    command:
+      - --port=5826
+      - --headless
+      - --r4=r4
+      - --r5=r5
+      - --fhir-source=/fixtures
+    ports:
+      - '5826:5826'
+    volumes:
+      - ./fixtures:/fixtures:ro
