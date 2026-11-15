@@ -1,0 +1,64 @@
+# The real sidecar in front of this template's built app, against the local EHR stack.
+# Started by `pnpm test:ehr` (run.mjs), which supplies EHR_REPO and the sidecar's signing key.
+#
+# The app shares the sidecar's network namespace, as the two containers of one hosted service
+# do: the app reaches the sidecar on 127.0.0.1:8081 and only the sidecar's port is published.
+# The EHR and the facade name `localhost`, so two forwarders make localhost:3001 and
+# localhost:8090 inside that namespace reach the host.
+
+name: template-app-ehr-e2e
+
+services:
+  sidecar:
+    build:
+      context: ${EHR_REPO:?set EHR_REPO to the EHR checkout that contains smart-sidecar/}
+      dockerfile: docker/smart-sidecar/Dockerfile
+    cpus: 1
+    mem_limit: 512m
+    ports:
+      - '127.0.0.1:8080:8080'
+    environment:
+      PORT: '8080'
+      APP_URL: http://127.0.0.1:3000
+      SMART_CLIENT_ID: dev-sidecar-app
+      SMART_REDIRECT_URI: http://localhost:8080/callback
+      SMART_FHIR_ORIGIN: http://localhost:8090
+      SMART_AUTHORIZATION_SERVER: http://localhost:3001
+      SMART_SCOPES: patient/Patient.rs patient/Encounter.rs offline_access
+      SMART_REQUIRE_PATIENT: 'true'
+      SMART_SIGNER: pem
+      SMART_PRIVATE_KEY: ${SMART_PRIVATE_KEY:-}
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+
+  # The app exactly as the shared build packages it: node:22-slim running .output.
+  app:
+    image: node:22-slim
+    network_mode: 'service:sidecar'
+    user: node
+    working_dir: /app
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      HOST: 127.0.0.1
+    volumes:
+      - ../.output:/app/.output:ro
+    command: ['node', '.output/server/index.mjs']
+
+  ehr-forward:
+    image: alpine/socat:1.8.0.3
+    network_mode: 'service:sidecar'
+    command:
+      [
+        'TCP-LISTEN:3001,fork,reuseaddr,bind=127.0.0.1',
+        'TCP:host.docker.internal:3001',
+      ]
+
+  facade-forward:
+    image: alpine/socat:1.8.0.3
+    network_mode: 'service:sidecar'
+    command:
+      [
+        'TCP-LISTEN:8090,fork,reuseaddr,bind=127.0.0.1',
+        'TCP:host.docker.internal:8090',
+      ]

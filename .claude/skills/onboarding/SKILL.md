@@ -101,10 +101,18 @@ Tiro already chose the address, so there is nothing to agree and nothing to wait
 
 ## 4. Patient data, said once
 
-If the tool will record anything about real patients, say this once, in your own words, briefly:
-the app stores data only in the browser on this device, nothing leaves it, and clearing the browser
-loses it. Ask if that is acceptable for a first version. If not, suggest starting with example or
-anonymous data.
+There are two kinds, and the answer to "what should the tool do?" tells you which applies.
+
+- **The tool needs the patient from the EHR** (it shows or uses the record of the patient the
+  clinician has open, their encounters or documents, or files something in the record): read
+  the `connect-to-ehr` skill now and build the tool as it describes. Say once, briefly: the
+  clinician starts the app from the patient's Apps tab in the Tiro EHR, the app shows that
+  patient's data without keeping it, and Tiro and the clinic approve what the app may see
+  before it works online. Until then they see an invented patient in the preview.
+- **The clinician types patient data into the tool**: say once, in your own words, briefly:
+  the app stores that data only in the browser on this device, nothing leaves it, and clearing
+  the browser loses it. Ask if that is acceptable for a first version. If not, suggest starting
+  with example or anonymous data.
 
 ## 5. Set the app up
 
@@ -115,8 +123,9 @@ anonymous data.
 - Write the page test. For any clinical score or formula, add unit tests with reference values
   and cite the source in a comment.
 - Run `pnpm check` and fix everything it reports.
-- Start `pnpm dev` and tell the clinician to open http://localhost:3000 if they are running
-  locally. Ask for one round of feedback and apply it.
+- Start `pnpm dev` and tell the clinician to open http://localhost:3001 if they are running
+  locally (the app as opened from the EHR, with an invented patient; http://127.0.0.1:3000
+  shows it opened directly). Ask for one round of feedback and apply it.
 
 ## 6. Commit and publish
 
