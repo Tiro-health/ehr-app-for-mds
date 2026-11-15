@@ -5,6 +5,10 @@ import { ehrContext, ehrRead, ehrSearch } from '@/lib/ehr.functions'
 import { encounters, patients } from '../../dev/synthetic-data.mjs'
 import { HomePage } from './home'
 
+vi.mock('@/lib/app-state.functions', () => ({
+  appStateRead: vi.fn().mockResolvedValue({ launched: false }),
+  appStateWrite: vi.fn(),
+}))
 vi.mock('@/lib/ehr.functions', () => ({
   ehrContext: vi.fn(),
   ehrRead: vi.fn(),

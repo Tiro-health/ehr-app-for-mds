@@ -113,6 +113,7 @@ There are two kinds, and the answer to "what should the tool do?" tells you whic
   the app stores that data only in the browser on this device, nothing leaves it, and clearing
   the browser loses it. Ask if that is acceptable for a first version. If not, suggest starting
   with example or anonymous data.
+- **No patient data** (a calculator, a reference): say nothing about it.
 
 ## 5. Set the app up
 

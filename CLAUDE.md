@@ -14,10 +14,11 @@ clinical tools with Claude Code. The person you are working with is a medical do
 - Commit after each completed piece of work with a message the clinician would understand.
 - When something fails, fix it. Only ask the clinician when the decision is theirs (what the tool
   should do, what it is called, what it should look like).
-- Patient data the clinician types in: the app stores it only in the browser on that device. If
-  they want to record real patient data, remind them once, briefly, that the browser is the
-  security boundary and data can be lost with the browser profile. See the `local-data` skill
-  when it exists.
+- Saved data: when the app is opened from the EHR, what it saves with `useAppState` is stored in
+  the EHR for the signed-in clinician. Opened on its own, it is saved in the browser only, and can
+  be lost with the browser profile. If the clinician wants to record real patient data, remind
+  them once, briefly, that saved app data is for settings and tool state, not for the patient
+  record.
 - Patient data from the EHR: when the tool needs the patient that is open in the EHR, use the
   `connect-to-ehr` skill and follow "Patient data from the EHR" below to the letter.
 
@@ -85,6 +86,7 @@ explains how and what to tell the clinician.
 src/
   app.config.ts        App name and tagline. Edit this to rename the app.
   hooks/ehr.ts         usePatient(), useFhirSearch(), useFhirRead(), ...: EHR data for pages.
+  hooks/use-app-state.ts useAppState(): settings saved for the clinician (in the EHR when launched).
   lib/fhir.server.ts   The `fhir` helper. Server only.
   lib/ehr.functions.ts Server functions behind the hooks. They work for any resource type.
   router.tsx           Router setup. Rarely touched.
@@ -105,8 +107,15 @@ e2e-ehr/               For Tiro's developers: the same test against the real EHR
 - **New page**: create `src/routes/<name>.tsx` that renders a component from `src/pages/<name>.tsx`.
   Add a link in the header in `src/routes/__root.tsx`. The route tree regenerates on its own.
 - **UI**: use the shadcn components in `src/components/ui/` before writing custom markup. Add
-  missing ones with the shadcn CLI, never by hand. Never edit files in `src/components/ui/`.
+  missing ones with the shadcn CLI, never by hand. Never edit files in `src/components/ui/`, with
+  one exception: the CLI sometimes writes `import { cn } from "cn"` and adds a `cn` package. Point
+  the import at `@/lib/utils` and run `pnpm remove cn`.
 - **Imports**: use the `@/` alias for anything under `src/`.
+- **Saving data**: use `useAppState(key, initial, { parse })` from `@/hooks/use-app-state` like
+  `useState`. Keys are short lowercase names (`click-count`). Values must be JSON and stay well
+  under 256 KB; always pass `parse` to check what comes back, because stored values are untrusted.
+  App State is for settings and tool state only: never use it for clinical facts (diagnoses,
+  observations, patient registries). The SMART spec forbids that.
 - **Browser-only code**: pages also render on the server, where `window`, `localStorage` and
   IndexedDB do not exist. Touch them only in `useEffect` or event handlers, never while rendering.
 - **Server functions**: only for EHR data, following "Patient data from the EHR". They never

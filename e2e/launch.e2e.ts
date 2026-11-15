@@ -39,6 +39,23 @@ test('the patient arrives in the first response, and no credential reaches the p
   expect(other).not.toContain('Voorbeeld')
 })
 
+test('opened from the EHR, the click count is saved in the EHR for the clinician', async ({
+  page,
+}) => {
+  await page.goto('/launch')
+  await expect(page.getByText('Saved in the EHR')).toBeVisible()
+  const count = page.getByText(/^Clicked \d+ times?$/)
+  const before = Number((await count.textContent())?.match(/\d+/)?.[0])
+
+  await page.getByRole('button', { name: 'Click me' }).click()
+  await expect(count).toHaveText(new RegExp(`Clicked ${before + 1} `))
+  await expect(page.getByText('Saved in the EHR')).toBeVisible()
+
+  await page.reload()
+  await expect(page.getByText('Saved in the EHR')).toBeVisible()
+  await expect(count).toHaveText(new RegExp(`Clicked ${before + 1} `))
+})
+
 test('opened directly, it works as before, without a patient', async ({
   page,
 }) => {

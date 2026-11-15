@@ -11,7 +11,12 @@ export default defineConfig({
   // Live reload connects to the app directly, also when the page is viewed through the
   // pretend EHR on another port (which, like the real one, passes no WebSocket on).
   server: { port, hmr: { clientPort: port } },
-  plugins: [tailwindcss(), tanstackStart(), nitro(), viteReact()],
+  // The server plugins start a dev server inside Vitest that only logs errors; tests need neither.
+  plugins: [
+    tailwindcss(),
+    ...(process.env.VITEST ? [] : [tanstackStart(), nitro()]),
+    viteReact(),
+  ],
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
