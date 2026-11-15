@@ -16,6 +16,10 @@ on:
 
 jobs:
   build:
+    # Only for Tiro's template repository itself, which is no app: it skips pushes to its main,
+    # where the shared workflow would always publish. Its pull requests are still checked and
+    # built. In your app this line does nothing; leave it or remove it.
+    if: github.repository != 'Tiro-health/ehr-app-for-mds' || github.ref != 'refs/heads/main'
     uses: Tiro-health/ehr-app-build/.github/workflows/build.yml@v2
     with:
       app: REPLACE-WITH-YOUR-APP-NAME
