@@ -1,0 +1,19 @@
+{
+  "resourceType": "Patient",
+  "id": "patient-1",
+  "identifier": [
+    {
+      "system": "urn:example:synthetic",
+      "value": "SYN-0001"
+    }
+  ],
+  "name": [
+    {
+      "use": "official",
+      "family": "Voorbeeld",
+      "given": ["Jeanne"]
+    }
+  ],
+  "gender": "female",
+  "birthDate": "1958-04-12"
+}

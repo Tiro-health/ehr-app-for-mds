@@ -1,0 +1,19 @@
+{
+  "resourceType": "Patient",
+  "id": "patient-3",
+  "identifier": [
+    {
+      "system": "urn:example:synthetic",
+      "value": "SYN-0003"
+    }
+  ],
+  "name": [
+    {
+      "use": "official",
+      "family": "Proefpersoon",
+      "given": ["Marie-Louise"]
+    }
+  ],
+  "gender": "female",
+  "birthDate": "1989-08-21"
+}

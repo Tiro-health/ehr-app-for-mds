@@ -1,0 +1,17 @@
+{
+  "resourceType": "Practitioner",
+  "id": "practitioner-1",
+  "identifier": [
+    {
+      "system": "urn:example:synthetic",
+      "value": "SYN-PRAC-0001"
+    }
+  ],
+  "name": [
+    {
+      "use": "official",
+      "family": "Proef",
+      "given": ["Dokter"]
+    }
+  ]
+}
