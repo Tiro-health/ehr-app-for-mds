@@ -1,17 +1,19 @@
 import type { ReactNode } from 'react'
+import type { QueryClient } from '@tanstack/react-query'
 import {
   HeadContent,
   Link,
   Outlet,
   Scripts,
-  createRootRoute,
+  createRootRouteWithContext,
 } from '@tanstack/react-router'
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { appConfig } from '@/app.config'
-import { SmartProvider } from '@/hooks/use-smart'
 import appCss from '@/styles.css?url'
 
-export const Route = createRootRoute({
+export const Route = createRootRouteWithContext<{
+  queryClient: QueryClient
+}>()({
   head: () => ({
     meta: [
       { charSet: 'utf-8' },
@@ -76,9 +78,7 @@ function RootLayout() {
         </nav>
       </header>
       <main className="mx-auto max-w-4xl px-4 py-8">
-        <SmartProvider>
-          <Outlet />
-        </SmartProvider>
+        <Outlet />
       </main>
       {import.meta.env.DEV && (
         <TanStackRouterDevtools position="bottom-right" />

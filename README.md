@@ -31,6 +31,7 @@ address on tirohealth.app.
 Talk to Claude Code as you would to a colleague who builds things for you:
 
 - "Add a page with the CHA2DS2-VASc score."
+- "Show the last three encounters of the patient I have open in the EHR."
 - "Make the buttons bigger and the colours calmer."
 - "Publish the latest version."
 
@@ -38,9 +39,13 @@ Claude keeps the app working and takes care of publishing.
 
 ## About your data
 
-Your app runs entirely in the browser. Anything it stores stays on the device where it was
-entered. Nothing is sent to a server. That also means the browser is the security boundary and
+Anything you type into your app is stored only in the browser, on the device where it was
+entered. It is not sent to a server. That also means the browser is the security boundary and
 data can be lost if the browser profile is cleared. Claude will remind you of this when it matters.
+
+Your app can also be started from a patient's Apps tab in the Tiro EHR. It then shows data of
+that patient, fetched from the EHR for as long as the app is open. The app does not keep it.
+Tiro and your clinic approve what an app may see before this works online.
 
 ## Made by
 

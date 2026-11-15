@@ -1,6 +1,4 @@
-import { useEffect, useState } from 'react'
 import { appConfig } from '@/app.config'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -9,14 +7,12 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
-import { useAppState, type AppStateStatus } from '@/hooks/use-app-state'
-import { useSmart } from '@/hooks/use-smart'
-import type { EhrClient } from '@/lib/smart/client'
+import { useAppState } from '@/hooks/use-app-state'
+import type { AppStateStatus } from '@/hooks/use-app-state'
+import { useEncounters, usePatient } from '@/hooks/ehr'
+import { encounterTitle, formatDate, patientName } from '@/lib/fhir/format'
 
 export function HomePage() {
-  const smart = useSmart()
-
   return (
     <div className="space-y-6">
       <div>
@@ -26,66 +22,54 @@ export function HomePage() {
         <p className="mt-2 text-muted-foreground">{appConfig.tagline}</p>
       </div>
 
-      {smart.status === 'loading' && <Skeleton className="h-24 w-full" />}
-      {smart.status === 'launched' && <PatientCard client={smart.client} />}
-      {smart.status === 'ended' && (
-        <Alert>
-          <AlertTitle>The connection to the EHR ended</AlertTitle>
-          <AlertDescription>
-            Open the app again from the patient’s chart in the EHR.
-          </AlertDescription>
-        </Alert>
-      )}
-      {(smart.status === 'not-launched' ||
-        smart.status === 'not-configured') && (
-        <Alert>
-          <AlertTitle>Not opened from a patient’s chart</AlertTitle>
-          <AlertDescription>
-            {smart.status === 'not-launched' && smart.error
-              ? smart.error
-              : 'Open this app from the Apps tab of a patient in the EHR to see their data.'}
-          </AlertDescription>
-        </Alert>
-      )}
+      <PatientCard />
 
       <ClickCounter />
     </div>
   )
 }
 
-type Patient = {
-  name?: { text?: string; given?: string[]; family?: string }[]
-}
+/** The patient the app was opened for. Shows nothing when the app was opened directly. */
+function PatientCard() {
+  const { patient } = usePatient()
+  const { encounters, error } = useEncounters()
+  if (!patient) return null
 
-function PatientCard({ client }: { client: EhrClient }) {
-  const [patient, setPatient] = useState<Patient | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!client.patientId) return
-    client
-      .json<Patient>(`Patient/${encodeURIComponent(client.patientId)}`)
-      .then(setPatient)
-      .catch((e: unknown) => setError(String(e)))
-  }, [client])
-
-  const name = patient?.name?.[0]
   return (
     <Card>
       <CardHeader>
-        <CardDescription>Opened from the EHR for</CardDescription>
-        <CardTitle data-testid="patient-name">
-          {error ??
-            (name
-              ? (name.text ??
-                [...(name.given ?? []), name.family].filter(Boolean).join(' '))
-              : 'Loading…')}
-        </CardTitle>
+        <CardTitle>{patientName(patient)}</CardTitle>
+        <CardDescription>
+          Opened from the EHR
+          {patient.birthDate && ` · born ${formatDate(patient.birthDate)}`}
+        </CardDescription>
       </CardHeader>
+      <CardContent>
+        <h2 className="text-sm font-medium">Encounters</h2>
+        {error ? (
+          <p className="mt-2 text-sm text-destructive">{error.message}</p>
+        ) : encounters.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">
+            No encounters yet.
+          </p>
+        ) : (
+          <ul aria-label="Encounters" className="mt-2 divide-y text-sm">
+            {encounters.map((encounter) => (
+              <li key={encounter.id} className="flex justify-between py-2">
+                <span>{encounterTitle(encounter)}</span>
+                <span className="text-muted-foreground">
+                  {formatDate(encounter.period?.start)} · {encounter.status}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
     </Card>
   )
 }
 
+/** The example: a count saved for the signed-in clinician, in the EHR when opened from it. */
 function ClickCounter() {
   const [clicks, setClicks, saved] = useAppState('click-count', 0, {
     parse: (v) =>

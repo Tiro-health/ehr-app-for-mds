@@ -1,11 +1,14 @@
 {
   "include": [
     "src",
+    "dev",
+    "scripts",
+    "e2e",
+    "e2e-ehr",
+    "playwright.config.ts",
     "vite.config.ts",
     "eslint.config.js",
-    "prettier.config.js",
-    "playwright.config.ts",
-    "e2e"
+    "prettier.config.js"
   ],
   "compilerOptions": {
     "target": "ES2022",
@@ -18,6 +21,8 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"],
     "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "resolveJsonModule": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "skipLibCheck": true,

@@ -15,5 +15,10 @@ src/routeTree.gen.ts
 !.env.example
 .DS_Store
 .claude/settings.local.json
-test-results
-playwright-report
+
+# Browser test output
+test-results/
+playwright-report/
+
+# State of the real-EHR test
+e2e-ehr/.state/
