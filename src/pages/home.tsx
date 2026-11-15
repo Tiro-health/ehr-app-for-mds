@@ -86,7 +86,12 @@ function ClickCounter() {
         </CardDescription>
       </CardHeader>
       <CardContent className="flex items-center gap-4">
-        <Button onClick={() => setClicks((n) => n + 1)}>Click me</Button>
+        <Button
+          disabled={saved === 'loading'}
+          onClick={() => setClicks((n) => n + 1)}
+        >
+          Click me
+        </Button>
         <span className="text-sm text-muted-foreground">
           Clicked {clicks} {clicks === 1 ? 'time' : 'times'}
         </span>
