@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs'
 import {
+  composeProblems,
+  composeScopes,
   manifestProblems,
   reservedAmong,
   routePaths,
@@ -45,4 +47,25 @@ test('explains what is wrong with a manifest', () => {
   expect(
     manifestProblems({ requiresPatient: true, scopes: ['launch', 'launch'] }),
   ).toEqual(['"scopes" lists the same scope twice.'])
+})
+
+test('the local sidecar grants the scopes of smart.json', () => {
+  const manifest = JSON.parse(readFileSync('smart.json', 'utf8'))
+  const granted = composeScopes(readFileSync('compose.yaml', 'utf8'))
+  expect(composeProblems(manifest.scopes, granted)).toEqual([])
+})
+
+test('names a scope compose.yaml lacks or has too many', () => {
+  const granted = composeScopes(
+    "    environment:\n      SMART_SCOPES: 'patient/Patient.rs user/Basic.rs'\n",
+  )
+  expect(granted).toEqual(['patient/Patient.rs', 'user/Basic.rs'])
+  const problems = composeProblems(
+    ['launch', 'openid', 'patient/Patient.rs', 'patient/Encounter.rs'],
+    granted,
+  )
+  expect(problems).toHaveLength(2)
+  expect(problems[0]).toContain('lacks "patient/Encounter.rs"')
+  expect(problems[1]).toContain('has "user/Basic.rs"')
+  expect(composeProblems(['launch'], null)[0]).toContain('no SMART_SCOPES')
 })

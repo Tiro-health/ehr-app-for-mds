@@ -2,7 +2,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { appConfig } from '@/app.config'
 import { ehrContext, ehrRead, ehrSearch } from '@/lib/ehr.functions'
-import { encounters, patients } from '../../dev/synthetic-data.mjs'
+import type { Encounter, Patient } from 'fhir/r4'
+import patient from '../../fixtures/r4/Patient-patient-1.json'
+import encounter1 from '../../fixtures/r4/Encounter-encounter-1.json'
+import encounter2 from '../../fixtures/r4/Encounter-encounter-2.json'
+import encounter3 from '../../fixtures/r4/Encounter-encounter-3.json'
 import { HomePage } from './home'
 
 vi.mock('@/lib/app-state.functions', () => ({
@@ -17,6 +21,8 @@ vi.mock('@/lib/ehr.functions', () => ({
   ehrUpdate: vi.fn(),
   ehrDelete: vi.fn(),
 }))
+
+const encounters = [encounter1, encounter2, encounter3] as Encounter[]
 
 function renderHome() {
   const client = new QueryClient({
@@ -45,7 +51,7 @@ test('shows the patient and encounters when opened from the EHR', async () => {
   vi.mocked(ehrContext).mockResolvedValue({
     launched: true,
     data: {
-      patient: patients[0]!.id!,
+      patient: 'patient-1',
       encounter: null,
       practitioner: null,
       fhirUser: null,
@@ -54,10 +60,13 @@ test('shows the patient and encounters when opened from the EHR', async () => {
       intent: null,
     },
   })
-  vi.mocked(ehrRead).mockResolvedValue({ launched: true, data: patients[0]! })
+  vi.mocked(ehrRead).mockResolvedValue({
+    launched: true,
+    data: patient as Patient,
+  })
   vi.mocked(ehrSearch).mockResolvedValue({
     launched: true,
-    data: { matches: encounters.slice(0, 3), included: [] },
+    data: { matches: encounters, included: [] },
   })
   renderHome()
 
@@ -66,7 +75,7 @@ test('shows the patient and encounters when opened from the EHR', async () => {
   expect(list.children).toHaveLength(3)
   // The page said what it wanted; the server functions know no resource type.
   expect(ehrRead).toHaveBeenCalledWith({
-    data: { type: 'Patient', id: patients[0]!.id },
+    data: { type: 'Patient', id: 'patient-1' },
   })
   expect(vi.mocked(ehrSearch).mock.calls[0]?.[0]).toMatchObject({
     data: { type: 'Encounter' },

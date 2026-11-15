@@ -33,8 +33,8 @@ in one sentence that this app cannot do that, and that Tiro can advise.
    variables (none exist). The platform does all of it.
 5. **Never define a page or file on `/launch`, `/callback` or `/.well-known/jwks.json`.** They
    belong to the platform. `pnpm check` fails if one appears.
-6. **Never put real patient data in the repository.** Test data lives in
-   `dev/synthetic-data.mjs` and is invented.
+6. **Never put real patient data in the repository.** Test data lives in `fixtures/` and is
+   invented.
 
 ## What the app can read and write
 
@@ -44,8 +44,9 @@ its permissions (see "Permissions"). So before building on a type, find out, do 
 
 - `await fhir.request('GET', 'metadata')` returns the EHR's CapabilityStatement: per resource
   type the interactions (`read`, `search-type`, `create`, `update`, `delete`) and the search
-  parameters it accepts. The local preview answers with the same list as the real EHR did when
-  `dev/facade-capabilities.mjs` was written. Use it while building, not in a page.
+  parameters it accepts. The local EHR (fhir-candle) serves more than the real EHR: check the
+  table below and `fixtures/README.md` before relying on a type or parameter. Use it while
+  building, not in a page.
 - A type the EHR does not serve answers status 404; an interaction it does not have for a
   type, or an operation such as `$everything`, answers 400. The error message says which.
   Tell the clinician it is not available instead of working around it.
@@ -168,7 +169,7 @@ Example: "show the patient's last three encounters".
    Use the same type, parameters and options as the hook, or it fetches twice.
 
 3. **Test** the page with `@/lib/ehr.functions` mocked, as in `src/pages/home.test.tsx`, using
-   the invented data from `dev/synthetic-data.mjs`. Use `patientName()`, `formatDate()` and
+   the invented data in `fixtures/r4/` (import the JSON files). Use `patientName()`, `formatDate()` and
    `encounterTitle()` from `@/lib/fhir/format` to show names and dates.
 
 The hooks:
@@ -233,28 +234,38 @@ server function instead.
 
 ## Trying it locally
 
-`pnpm dev` starts the app with a pretend EHR beside it (invented data, nothing real):
+`docker compose up` starts the local EHR, then `pnpm dev` the app at http://127.0.0.1:3000. The
+app reaches the EHR exactly as online, through Tiro's sidecar on 127.0.0.1:8081. The sidecar
+runs in dev mode: one fixed session, no launch, against fhir-candle with the invented data in
+`fixtures/` (patient "Jeanne Voorbeeld", `patient-1`, with three encounters). Docker must run.
 
-- http://localhost:3001 shows the app **as opened from the EHR**, for the invented patient
-  "Jeanne Voorbeeld" with three encounters. Add `/launch?patient=synthetic-patient-2` for the
-  second patient, or `/launch?fail=expired` (or any other reason code) to see the explanation page.
-- http://127.0.0.1:3000 shows the app **as opened directly**, without a patient.
+Switch the **debug scenario** at http://localhost:8080/_dev, or start with
+`SMART_DEV_SCENARIO=<name> docker compose up`. Try each one that matters for the feature:
 
-The pretend EHR grants exactly the scopes in `smart.json`, so a missing scope shows up locally.
-It serves the same resource types, interactions and search parameters as the real EHR
-(`dev/facade-capabilities.mjs`) and forgets every change when it restarts. To have data of
-another type in the preview, add invented resources to `otherResources` in
-`dev/synthetic-data.mjs`, each pointing at its patient with `subject` or `patient`. A type the
-real EHR does not serve can be read and searched in the preview that way, but will answer 404
-online: say so to the clinician.
+| Scenario            | `fhir.context()`                         | FHIR requests                                                 |
+| ------------------- | ---------------------------------------- | ------------------------------------------------------------- |
+| `patient` (default) | `patient: 'patient-1'`, `encounter` null | answered                                                      |
+| `patient-encounter` | `patient-1` and `encounter-1`            | answered                                                      |
+| `no-patient`        | `patient` and `encounter` null           | answered                                                      |
+| `scope-denied`      | `patient-1`, scopes `patient/Patient.rs` | other types: `ScopeRefusedError` (403)                        |
+| `expired`           | `NotLaunchedError` (401)                 | `NotLaunchedError`: the page shows the app as opened directly |
 
-`pnpm test:e2e` builds the app and drives it in a real browser behind the pretend EHR. Run it
-after changing anything that uses EHR data.
+- The local sidecar grants the scopes in `compose.yaml` (`SMART_SCOPES`), which `pnpm check`
+  keeps equal to `smart.json`: after adding a scope to `smart.json`, add it to `SMART_SCOPES`
+  (without `launch`, `openid` and `fhirUser`) and restart with `docker compose up`. It refuses
+  a request the scopes do not allow, as the real EHR does.
+- fhir-candle is more permissive than the real EHR: it serves every resource type and ignores
+  unknown search parameters, and it does not scope searches to the patient. `fixtures/README.md`
+  lists the differences. A type that works locally but is not in the table above will answer
+  404 online: say so to the clinician.
+- To have data of another type locally, add an invented resource as a file in `fixtures/r4/`
+  (`<Type>-<id>.json`, pointing at `Patient/patient-1`) and in `fixtures/r5/`, then restart
+  with `docker compose restart fhir-candle`. Changes made through the app are lost on restart.
+- The app is first opened from a real patient's Apps tab after it is published (`publish`).
 
-Running against the real EHR on a developer's machine (the EHR local stack and the real
-sidecar) is for Tiro's developers, not for the clinician: `e2e-ehr/README.md`. Never edit that
-folder, and never copy from it: it plays the EHR's side of a launch, which an app must not do.
-The pretend EHR is enough to build and publish.
+`pnpm test:e2e` builds the app and drives it in a real browser against the local EHR, switching
+through the scenarios. Run it, with `docker compose up`, after changing anything that uses EHR
+data.
 
 ## What to tell the clinician
 
