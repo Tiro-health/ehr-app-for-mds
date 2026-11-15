@@ -1,8 +1,10 @@
-// Part of `pnpm check`. Verifies the two things the hosting platform relies on:
+// Part of `pnpm check`. Verifies the things the hosting platform and the local EHR rely on:
 //
 // 1. smart.json states which EHR permissions (scopes) the app needs. The platform does not
-//    read it yet (it uses the app's registration in the EHR); the local preview does.
-// 2. The app defines no page on the addresses the platform keeps for itself. The platform
+//    read it yet (it uses the app's registration in the EHR).
+// 2. compose.yaml grants the local sidecar the same scopes, so the local preview refuses
+//    what the app did not ask for.
+// 3. The app defines no page on the addresses the platform keeps for itself. The platform
 //    handles the launch from the EHR on those; a page there would never be reached and
 //    would mean the app is trying to do the platform's job.
 
@@ -58,6 +60,44 @@ export function manifestProblems(manifest) {
   return problems
 }
 
+// Asked for by the sidecar on every launch, so not part of its SMART_SCOPES.
+const LAUNCH_SCOPES = new Set([
+  'launch',
+  'launch/patient',
+  'launch/encounter',
+  'openid',
+  'fhirUser',
+  'profile',
+])
+
+/** The SMART_SCOPES compose.yaml gives the sidecar, or null when it sets none. */
+export function composeScopes(composeSource) {
+  const line = /^\s*SMART_SCOPES:\s*['"]?([^'"\n#]*)/m.exec(composeSource)
+  return line ? line[1].trim().split(/\s+/).filter(Boolean) : null
+}
+
+/** What differs between the scopes of smart.json and those compose.yaml grants, as sentences. */
+export function composeProblems(manifestScopes, granted) {
+  if (granted === null) {
+    return [
+      'compose.yaml: the sidecar has no SMART_SCOPES. Restore it from the template.',
+    ]
+  }
+  const wanted = manifestScopes.filter((scope) => !LAUNCH_SCOPES.has(scope))
+  const missing = wanted.filter((scope) => !granted.includes(scope))
+  const extra = granted.filter((scope) => !wanted.includes(scope))
+  return [
+    ...missing.map(
+      (scope) =>
+        `compose.yaml: SMART_SCOPES lacks "${scope}" from smart.json. Add it, then restart with \`docker compose up\`.`,
+    ),
+    ...extra.map(
+      (scope) =>
+        `compose.yaml: SMART_SCOPES has "${scope}", which smart.json does not list. Remove it, or add it to smart.json.`,
+    ),
+  ]
+}
+
 function main() {
   const problems = []
 
@@ -69,6 +109,14 @@ function main() {
       problems.push(
         ...manifestProblems(manifest).map((p) => `smart.json: ${p}`),
       )
+      if (Array.isArray(manifest?.scopes) && existsSync('compose.yaml')) {
+        problems.push(
+          ...composeProblems(
+            manifest.scopes,
+            composeScopes(readFileSync('compose.yaml', 'utf8')),
+          ),
+        )
+      }
     } catch {
       problems.push('smart.json is not valid JSON.')
     }
@@ -88,7 +136,7 @@ function main() {
     for (const problem of problems) console.error(`✗ ${problem}`)
     process.exit(1)
   }
-  console.log('✓ smart.json and reserved addresses are in order')
+  console.log('✓ smart.json, compose.yaml and reserved addresses are in order')
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) main()

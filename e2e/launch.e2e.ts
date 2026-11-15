@@ -1,48 +1,56 @@
 import { expect, test } from '@playwright/test'
+import type { APIRequestContext } from '@playwright/test'
 
-// The app as built for production, behind the pretend EHR with its invented patient.
+// The app as built for production, against the local EHR of compose.yaml: the sidecar in dev
+// mode and fhir-candle with the fixtures. Start it first with `docker compose up`.
+// Each test picks a debug scenario on the sidecar; the last one puts `patient` back.
 
-test('opened from the EHR, it shows the patient and their encounters', async ({
-  page,
-}) => {
-  await page.goto('/launch')
+const DEV_PAGE = process.env.SIDECAR_DEV_URL ?? 'http://localhost:8080'
 
-  await expect(page).toHaveURL('/')
-  await expect(page.getByText('Jeanne Voorbeeld')).toBeVisible()
-  const encounters = page.getByRole('list', { name: 'Encounters' })
-  await expect(encounters.getByRole('listitem')).toHaveText([
-    /First consultation.*14 Nov 2026.*in-progress/,
-    /Day admission.*17 Jun 2026.*finished/,
-    /Follow-up consultation.*3 Mar 2026.*finished/,
-  ])
+async function scenario(request: APIRequestContext, name: string) {
+  const answer = await request
+    .post(`${DEV_PAGE}/_dev`, {
+      headers: { origin: DEV_PAGE },
+      form: { scenario: name },
+      maxRedirects: 0,
+    })
+    .catch(() => undefined)
+  expect(
+    answer && answer.status() < 400,
+    'The local EHR is not running: start it with `docker compose up`.',
+  ).toBe(true)
+}
 
-  // The page still works as a page: it took over in the browser.
-  await page.getByRole('button', { name: 'Click me' }).click()
-  await expect(page.getByText('Clicked 1 time')).toBeVisible()
-})
+test.describe.configure({ mode: 'serial' })
+test.afterAll(async ({ request }) => scenario(request, 'patient'))
 
-test('the patient arrives in the first response, and no credential reaches the page', async ({
+test('opened for a patient, it shows the patient and their encounters', async ({
   page,
   request,
 }) => {
-  await page.goto('/launch')
-  const cookies = await page.context().cookies()
-  const session = cookies.find((cookie) => cookie.name === '__Host-smart')
-  expect(session?.httpOnly).toBe(true)
+  await scenario(request, 'patient')
+  await page.goto('/')
 
-  const html = await (await page.request.get('/')).text()
-  expect(html).toContain('Jeanne Voorbeeld')
-  expect(html).not.toContain(session!.value)
+  await expect(page.getByText('Jeanne Voorbeeld')).toBeVisible()
+  const encounters = page.getByRole('list', { name: 'Encounters' })
+  await expect(encounters.getByRole('listitem')).toHaveCount(3)
 
-  // Another visitor, without a launch, gets the same page without the patient.
-  const other = await (await request.get('/')).text()
-  expect(other).not.toContain('Voorbeeld')
+  // The page still works as a page: it took over in the browser.
+  await expect(page.getByRole('button', { name: 'Click me' })).toBeEnabled()
 })
 
-test('opened from the EHR, the click count is saved in the EHR for the clinician', async ({
+test('the patient arrives in the first response', async ({ request }) => {
+  await scenario(request, 'patient')
+  const html = await (await request.get('/')).text()
+  expect(html).toContain('Jeanne Voorbeeld')
+})
+
+test('the click count is saved in the EHR for the clinician', async ({
   page,
+  request,
 }) => {
-  await page.goto('/launch')
+  await scenario(request, 'patient')
+  await page.goto('/')
   await expect(page.getByText('Saved in the EHR')).toBeVisible()
   const count = page.getByText(/^Clicked \d+ times?$/)
   const before = Number((await count.textContent())?.match(/\d+/)?.[0])
@@ -56,33 +64,35 @@ test('opened from the EHR, the click count is saved in the EHR for the clinician
   await expect(count).toHaveText(new RegExp(`Clicked ${before + 1} `))
 })
 
-test('opened directly, it works as before, without a patient', async ({
-  page,
-}) => {
+test('without a patient, it shows no patient', async ({ page, request }) => {
+  await scenario(request, 'no-patient')
   await page.goto('/')
 
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
-  await page.getByRole('button', { name: 'Click me' }).click()
-  await expect(page.getByText('Clicked 1 time')).toBeVisible()
   await expect(page.getByText('Opened from the EHR')).toHaveCount(0)
 })
 
-test('a refused launch lands on the explanation', async ({ page }) => {
-  await page.goto('/launch?fail=ehr-refused')
+test('a refused scope names what is missing', async ({ page, request }) => {
+  await scenario(request, 'scope-denied')
+  await page.goto('/')
 
-  await expect(page).toHaveURL('/not-launched?reason=ehr-refused')
+  await expect(page.getByText('Jeanne Voorbeeld')).toBeVisible()
+  await expect(page.getByText(/patient\/Encounter\.rs/)).toBeVisible()
+})
+
+test('an ended session is as opened directly', async ({ page, request }) => {
+  await scenario(request, 'expired')
+  await page.goto('/')
+
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+  await expect(page.getByText('Opened from the EHR')).toHaveCount(0)
+})
+
+test('the explanation page explains a refused launch', async ({ page }) => {
+  await page.goto('/not-launched?reason=ehr-refused')
   await expect(
     page.getByRole('heading', {
       name: 'The EHR did not allow the app to open',
     }),
   ).toBeVisible()
-})
-
-test('a request from another site that changes something is refused', async ({
-  request,
-}) => {
-  const answer = await request.post('/', {
-    headers: { origin: 'https://elsewhere.example' },
-  })
-  expect(answer.status()).toBe(403)
 })

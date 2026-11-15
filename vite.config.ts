@@ -9,8 +9,14 @@ const port = Number(process.env.PORT) || 3000
 export default defineConfig({
   resolve: { tsconfigPaths: true },
   // Live reload connects to the app directly, also when the page is viewed through the
-  // pretend EHR on another port (which, like the real one, passes no WebSocket on).
-  server: { port, hmr: { clientPort: port } },
+  // sidecar on port 8080, which passes no WebSocket on. 127.0.0.1, not localhost (which can be
+  // IPv6 only), so the sidecar in compose reaches it at host.docker.internal.
+  server: {
+    host: '127.0.0.1',
+    port,
+    strictPort: true,
+    hmr: { clientPort: port },
+  },
   // The server plugins start a dev server inside Vitest that only logs errors; tests need neither.
   plugins: [
     tailwindcss(),
@@ -21,6 +27,6 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
     globals: true,
-    exclude: ['node_modules', '.output', 'e2e', 'e2e-ehr'],
+    exclude: ['node_modules', '.output', 'e2e'],
   },
 })

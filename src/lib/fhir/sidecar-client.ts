@@ -200,9 +200,9 @@ export function createFhirClient(
   { asked = [] }: FhirClientOptions = {},
 ) {
   async function send(what: string, path: string, init: RequestInit = {}) {
+    // Without a cookie the sidecar still decides: online it answers 401, in dev mode it has
+    // a session for everyone.
     const forwarded = cookie()
-    if (!forwarded) throw new NotLaunchedError()
-
     const url = sidecarUrl() + path
     let response: Response
     try {
@@ -211,7 +211,7 @@ export function createFhirClient(
         headers: {
           accept: 'application/fhir+json',
           ...init.headers,
-          cookie: forwarded,
+          ...(forwarded ? { cookie: forwarded } : {}),
         },
         redirect: 'error',
         signal: AbortSignal.timeout(20_000),

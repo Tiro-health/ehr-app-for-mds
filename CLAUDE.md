@@ -40,7 +40,7 @@ clinical tools with Claude Code. The person you are working with is a medical do
 | Icons         | lucide-react                                         |
 | EHR data      | `fhir` helper on the server, TanStack Query in pages |
 | Tests         | Vitest + Testing Library, Playwright for the browser |
-| Hosting       | tirohealth.app via the Tiro Deploy GitHub App        |
+| Hosting       | tirohealth.app via Tiro's shared build workflow      |
 
 Pages are rendered on a small Node server (built by Nitro into `.output/`) and then take over in the browser. The
 server keeps no data: it renders pages and, when the app was opened from the EHR, passes the
@@ -70,13 +70,13 @@ So patient data from the EHR passes through this app's server code. These rules 
 5. **`/launch`, `/callback` and `/.well-known/jwks.json` are reserved** for the platform. Never
    define a page or file there. `pnpm check` fails if one appears.
 6. **Never put real patient data in the repository.** Test data is invented and lives in
-   `dev/synthetic-data.mjs`.
+   `fixtures/`.
 
 If a request can only be met by breaking one of these, do not build it. Tell the clinician it is
 not possible in this app and that Tiro can advise.
 
-What the app needs from the EHR is listed in `smart.json` (the scopes). The local preview grants
-exactly that list. Online, the app gets what Tiro registered for it and the clinic approved; the
+What the app needs from the EHR is listed in `smart.json` (the scopes). The local EHR in
+`compose.yaml` grants exactly that list (`SMART_SCOPES`; `pnpm check` keeps the two equal). Online, the app gets what Tiro registered for it and the clinic approved; the
 platform does not read `smart.json` yet. Add a scope there when a feature needs more; the skill
 explains how and what to tell the clinician.
 
@@ -97,10 +97,35 @@ src/
   components/ui/       shadcn components. Add more with `pnpm dlx shadcn@latest add <name>`.
   lib/                 Helpers.
 smart.json             What the app needs from the EHR (scopes). Checked by `pnpm check`.
-dev/                   The pretend EHR for local preview and tests, with invented data.
-e2e/                   Browser test of the built app behind the pretend EHR.
-e2e-ehr/               For Tiro's developers: the same test against the real EHR. Leave it alone.
+compose.yaml           The local EHR: Tiro's sidecar in dev mode and a FHIR server with fixtures/.
+fixtures/              Invented FHIR data the local EHR starts with (r4/ and r5/).
+e2e/                   Browser test of the built app against the local EHR.
+.github/workflows/     build.yml: checks, builds and publishes through Tiro's shared workflow.
 ```
+
+## The local EHR
+
+`docker compose up` starts the EHR on this machine, then `pnpm dev` starts the app at
+http://127.0.0.1:3000. The app talks to the EHR exactly as it does online: through Tiro's SMART
+sidecar at http://127.0.0.1:8081. Here the sidecar runs in **dev mode**: there is no launch from
+the EHR and no sign-in; it holds one fixed session against fhir-candle, a FHIR server loaded with
+the invented data in `fixtures/` (patient `patient-1`, encounters `encounter-1` to `-3`,
+practitioner `practitioner-1`). Changes are kept until the container restarts.
+
+A **debug scenario** decides what that session is. Switch it at http://localhost:8080/_dev while
+it runs, or start with one: `SMART_DEV_SCENARIO=no-patient docker compose up`.
+
+| Scenario            | What the app gets                                                                     |
+| ------------------- | ------------------------------------------------------------------------------------- |
+| `patient` (default) | Opened for `patient-1`, no encounter                                                  |
+| `patient-encounter` | Opened for `patient-1` during `encounter-1`                                           |
+| `no-patient`        | Opened from the EHR without a patient                                                 |
+| `scope-denied`      | Opened for `patient-1`, but granted only `patient/Patient.rs`: other requests get 403 |
+| `expired`           | No session: as if opened directly, or after the session ended (401)                   |
+
+A real launch from a patient's Apps tab first happens after the app is published (see `/publish`).
+Docker must be installed (Docker Desktop on a laptop). Never change `compose.yaml` except
+`SMART_SCOPES` (to match `smart.json`) and the ids, and never edit `fixtures/` with real data.
 
 ## Conventions
 
@@ -125,22 +150,24 @@ e2e-ehr/               For Tiro's developers: the same test against the real EHR
   Query). No other global state library unless a skill introduces one.
 - **Tests**: every page gets a small test next to it that renders it and checks the heading.
   Clinical calculations get unit tests with the reference values from the source publication.
-  A page that uses EHR data is tested with the server function mocked and invented data, and
-  `pnpm test:e2e` is run before finishing.
+  A page that uses EHR data is tested with the server function mocked and the data in
+  `fixtures/`, and `pnpm test:e2e` is run (with `docker compose up`) before finishing.
 - **Formatting and lint**: `pnpm format` fixes, `pnpm check` verifies (types, lint, format, tests).
-- **Deploy**: pushing to `main` deploys, once Tiro Deploy is installed and Tiro approved the app
-  (see `/publish`). `.github/workflows/build.yml` runs `pnpm check` and `pnpm build` through
-  Tiro's shared workflow; both must pass before anything is deployed. Do not change it.
+- **Deploy**: pushing to `main` publishes (see `/publish`). `.github/workflows/build.yml` runs
+  `pnpm check` and `pnpm build` through Tiro's shared workflow; both must pass before anything is
+  published. Its `app:` line names the app: the template has `REPLACE-WITH-YOUR-APP-NAME` there,
+  which must become the app's name as shown on the EHR's setup page (the page shows the whole file
+  with the name filled in). Change nothing else in it.
 - **No new dependencies** unless they replace real complexity. Prefer plain code.
 
 ## Commands
 
 ```
 pnpm install     install dependencies (once)
-pnpm dev         local preview: http://localhost:3001 as opened from the EHR (a pretend EHR with
-                 an invented patient), http://127.0.0.1:3000 as opened directly
-pnpm check       types, EHR manifest and reserved addresses, lint, format, tests
-pnpm test:e2e    builds the app and drives it in a browser behind the pretend EHR
+docker compose up   the local EHR (leave it running; `docker compose down` stops it)
+pnpm dev         local preview at http://127.0.0.1:3000, against the local EHR
+pnpm check       types, EHR manifest, compose scopes and reserved addresses, lint, format, tests
+pnpm test:e2e    builds the app and drives it in a browser against the local EHR
 pnpm format      auto-fix formatting and lint
 pnpm build       production build into .output/
 pnpm start       run the production build at http://localhost:3000 (or the port in `PORT`)

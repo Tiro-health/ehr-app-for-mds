@@ -1,18 +1,50 @@
-# Local FHIR server for development: fhir-candle loaded with the synthetic fixtures.
-# Start: docker compose up. FHIR R4 at http://localhost:5826/fhir/r4, R5 at /fhir/r5.
-# The data is in memory: restart the container to reset it to the fixtures.
+# The EHR on your machine, for development: `docker compose up`, then `pnpm dev`.
+#
+# - fhir-candle: a FHIR server loaded with the synthetic fixtures in fixtures/. The data is in
+#   memory: restart the container to reset it.
+# - sidecar: Tiro's SMART sidecar in dev mode. It is the same image that runs beside the app
+#   online, at the tag production runs. Instead of a launch from the EHR it holds one fixed
+#   session against fhir-candle. The app's server reaches it at http://127.0.0.1:8081, as it
+#   does online. Switch the debug scenario at http://localhost:8080/_dev.
 services:
   fhir-candle:
     # Pinned by digest: fhir-candle publishes no version tags. This is version 0.2026.708.1349.
     image: ghcr.io/fhir/fhir-candle@sha256:3c7f66cde51c8bfc56a03142e8fa3a9b0ded67c4329f1fd4429a0245f95c07fb
     command:
       - --port=5826
+      # The address the sidecar uses, so it rewrites Bundle links to its own loopback API.
       - --url=http://fhir-candle:5826
       - --headless
       - --r4=r4
       - --r5=r5
       - --fhir-source=/fixtures
     ports:
-      - '5826:5826'
+      # Optional: browse the fixtures at http://localhost:5826/fhir/r4
+      - '127.0.0.1:5826:5826'
     volumes:
       - ./fixtures:/fixtures:ro
+
+  sidecar:
+    image: europe-west1-docker.pkg.dev/ehr-factory-apps/smart-sidecar/smart-sidecar:0.2.0
+    depends_on:
+      - fhir-candle
+    ports:
+      # The debug page: http://localhost:8080/_dev. Every other address is passed on to the app.
+      - '127.0.0.1:8080:8080'
+      # The loopback API (/session, /fhir) for the app's server code running on this machine.
+      - '127.0.0.1:8081:8081'
+    environment:
+      SMART_DEV_MODE: 'true'
+      # patient, patient-encounter, no-patient, scope-denied or expired. Also switchable at /_dev.
+      SMART_DEV_SCENARIO: ${SMART_DEV_SCENARIO:-patient}
+      SMART_DEV_FHIR_BASE: http://fhir-candle:5826/fhir/r4
+      SMART_DEV_PATIENT: patient-1
+      SMART_DEV_ENCOUNTER: encounter-1
+      SMART_DEV_PRACTITIONER: practitioner-1
+      # The resource scopes of smart.json, and offline_access. `pnpm check` keeps them equal.
+      SMART_SCOPES: patient/Patient.rs patient/Encounter.rs user/Basic.cruds offline_access
+      SMART_DEV_INTERNAL_HOST: 0.0.0.0
+      # The app as `pnpm dev` runs it on this machine.
+      APP_URL: http://host.docker.internal:3000
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'

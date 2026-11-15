@@ -5,15 +5,23 @@ description: Publish the app to its own web address on tirohealth.app and report
 
 # Publish
 
-The app is published at `https://<app>.tirohealth.app`, where `<app>` is the name Tiro approved
-it under. Every push to `main` runs `.github/workflows/build.yml`, which uses Tiro's shared
-workflow to run `pnpm check` and `pnpm build` and package the app. When both pass, **Tiro
-Deploy**, a GitHub App installed on this repository, checks the app is approved and puts it
-online. It reports the result as a check called **Tiro.health Deploy (production)** on the pushed
-commit, a minute or so after the workflow finishes.
+The app is published at `https://<app>.tirohealth.app`, where `<app>` is its name on Tiro. Every
+push to `main` runs `.github/workflows/build.yml`, which calls Tiro's shared workflow
+(`Tiro-health/ehr-app-build`, `@v2`): the **Check and build** job runs `pnpm check` and
+`pnpm build` and packages the app; the **Publish to Tiro** job then puts it online and writes the
+address to the run's summary. Pull requests are checked and built, never published.
 
 Everything here needs `gh`, logged in (`gh auth status`). If it is missing, install it and run
 `gh auth login` with the clinician, explaining in one sentence that it lets you publish for them.
+
+## 0. The app's name in the workflow
+
+`.github/workflows/build.yml` has `app: <name>`. In a fresh repository it reads
+`REPLACE-WITH-YOUR-APP-NAME`. The name comes from Tiro: once Tiro has registered the app, the
+clinician signs in with GitHub on the EHR's setup page (https://ehr.tiro.health/platform/setup),
+links this repository, and the page shows `build.yml` with the name filled in. Ask the clinician
+for that name (lowercase letters, digits and hyphens), put it on the `app:` line, change nothing
+else in the file, and commit.
 
 ## 1. Check and push
 
@@ -21,44 +29,30 @@ Everything here needs `gh`, logged in (`gh auth status`). If it is missing, inst
 2. Make sure all work is committed on `main`. Commit with a plain-language message if not.
 3. `git push origin main`.
 
-## 2. Wait for Tiro Deploy's check
+## 2. Wait for the Build workflow
 
-Get the owner and repository from `git remote -v` and the commit with `git rev-parse HEAD`, then
-poll every 15 seconds, for up to 15 minutes, until the check is completed:
-
-```bash
-gh api repos/<owner>/<repo>/commits/<sha>/check-runs \
-  --jq '.check_runs[] | select(.app.slug == "tiro-health-deploy") | {status, conclusion, title: .output.title, summary: .output.summary, url: .details_url, log: .output.text}'
-```
-
-The workflow plus the deploy usually take three to five minutes. Tell the clinician it is on its
-way while you wait. Follow the workflow with `gh run watch` on the latest `build.yml` run.
+Follow the run with `gh run watch` on the latest `build.yml` run (`gh run list --workflow build.yml
+--limit 1`). Checking, building and publishing usually take three to five minutes; tell the
+clinician it is on its way while you wait.
 
 ## 3. Act on the result
 
-- **The Build workflow failed**: `pnpm check` or `pnpm build` failed, and nothing was deployed.
-  Tiro Deploy then reports "Checks or build did not pass". Read the log with
-  `gh run view <id> --log-failed`, fix, commit, push again.
-- **No Tiro Deploy check appears within a minute after the workflow passed**: Tiro Deploy is not
-  installed on this repository. Ask the clinician to open https://github.com/apps/tiro-health-deploy/installations/new,
-  choose their account, pick **Only select repositories**, select this repository and install.
-  Then publish again with an empty commit: `git commit --allow-empty -m "Publish"` and push.
-- **"This repository is not registered"**: the app has no web address yet. If Tiro sent an
-  invitation link, the clinician opens it and picks this repository, which registers the app on
-  the spot (step 3 of the `onboarding` skill). Otherwise look for the request:
-  `gh issue list --repo Tiro-health/ehr-app-build --label app-registration --state all --search "<owner>/<repo> in:body"`.
-  - Open: it is waiting for Tiro. If it is labelled `needs-changes`, read the check's comment
-    and fix the request with the clinician. Tell them you will publish again once it is approved.
-  - Closed as approved: publish again with an empty commit as above.
-  - None: file one as in step 3 of the `onboarding` skill.
-- **"… is suspended"**: Tiro has paused the app. Tell the clinician to contact Tiro.
-- **"No image to deploy"**: `.github/workflows/build.yml` was changed. Restore it to call Tiro's
-  shared workflow unchanged, commit, push again.
-- **"Could not import the image"**, **"Deploy failed"** or **"Could not start the deploy"**: a
-  problem on Tiro's side, not in the app. The previous version stays online. Re-run the workflow
-  once (`gh run rerun <id>`); if it fails again, tell the clinician to contact Tiro.
-- **"Live at …"**: confirm the URL answers with `curl -sI <url>` (HTTP 200) and report it in one
-  line.
+- **Check and build failed**: `pnpm check` or `pnpm build` failed, and nothing was published. Read
+  the log with `gh run view <id> --log-failed`, fix, commit, push again.
+- **"No Tiro app given"** or **"The app name … is not valid"**: the `app:` line is missing or
+  still the placeholder. Do step 0.
+- **"This app is still being set up on Tiro"**: a newly linked app; the job retries for up to ten
+  minutes by itself. Wait.
+- **"This repository is not linked to a Tiro app, or the app is suspended"**: the name on the
+  `app:` line is wrong, the repository is not linked on the setup page yet, or Tiro paused the app.
+  Check the name with the clinician; if it is right, ask them to link the repository on the
+  setup page, or to contact Tiro. Then re-run the workflow (`gh run rerun <id>`).
+- **Any other failure in Publish to Tiro**: a problem on Tiro's side, not in the app. The previous
+  version stays online. Re-run once; if it fails again, tell the clinician to contact Tiro.
+- **Success**: the run summary names `https://<app>.tirohealth.app`
+  (`gh run view <id>` shows it). Confirm it answers with `curl -sI <url>` and report it in one
+  line. The app is opened with a patient from that patient's Apps tab in the Tiro EHR, once the
+  clinic has approved it: this is the first real launch, after the local EHR of `compose.yaml`.
 
 ## Releases
 

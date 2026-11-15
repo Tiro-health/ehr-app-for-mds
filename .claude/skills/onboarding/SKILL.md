@@ -99,6 +99,13 @@ Tiro already chose the address, so there is nothing to agree and nothing to wait
    app goes online at that address on the first publish after approval, and that you can keep
    building in the meantime. Note the issue URL for the publish step.
 
+### Then, either way: the app's name in the workflow
+
+Once Tiro has registered the app, the clinician links this repository on the EHR's setup page
+(https://ehr.tiro.health/platform/setup), which shows the app's name. Put it on the `app:` line
+of `.github/workflows/build.yml` in place of `REPLACE-WITH-YOUR-APP-NAME` (step 0 of `publish`).
+Until then, pushes to `main` are checked and built but not published.
+
 ## 4. Patient data, said once
 
 There are two kinds, and the answer to "what should the tool do?" tells you which applies.
@@ -124,9 +131,12 @@ There are two kinds, and the answer to "what should the tool do?" tells you whic
 - Write the page test. For any clinical score or formula, add unit tests with reference values
   and cite the source in a comment.
 - Run `pnpm check` and fix everything it reports.
-- Start `pnpm dev` and tell the clinician to open http://localhost:3001 if they are running
-  locally (the app as opened from the EHR, with an invented patient; http://127.0.0.1:3000
-  shows it opened directly). Ask for one round of feedback and apply it.
+- Start the local EHR with `docker compose up -d` (Docker must be installed; if it is not, help
+  the clinician install Docker Desktop, or skip the EHR and say the app then shows no patient),
+  then `pnpm dev`, and tell the clinician to open http://127.0.0.1:3000 if they are running
+  locally. It shows the app as opened from the EHR for an invented patient; the other
+  situations (no patient, refused access, session ended) are at http://localhost:8080/_dev.
+  Ask for one round of feedback and apply it.
 
 ## 6. Commit and publish
 
