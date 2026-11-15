@@ -11,9 +11,7 @@
     {
       "use": "official",
       "family": "Voorbeeld",
-      "given": [
-        "Jeanne"
-      ]
+      "given": ["Jeanne"]
     }
   ],
   "gender": "female",

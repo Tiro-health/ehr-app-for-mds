@@ -11,9 +11,7 @@
     {
       "use": "official",
       "family": "Specimen",
-      "given": [
-        "Karel"
-      ]
+      "given": ["Karel"]
     }
   ],
   "gender": "male",

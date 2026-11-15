@@ -11,9 +11,7 @@
     {
       "use": "official",
       "family": "Proefpersoon",
-      "given": [
-        "Marie-Louise"
-      ]
+      "given": ["Marie-Louise"]
     }
   ],
   "gender": "female",

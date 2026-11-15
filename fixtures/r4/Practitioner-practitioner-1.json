@@ -11,9 +11,7 @@
     {
       "use": "official",
       "family": "Proef",
-      "given": [
-        "Dokter"
-      ]
+      "given": ["Dokter"]
     }
   ]
 }
