@@ -6,266 +6,134 @@ description: Build features that use patient data from the Tiro EHR. Use when th
 # Connect to the EHR
 
 The clinician opens a patient in the Tiro EHR and starts this app from the patient's Apps tab.
-The hosting platform does that launch: it signs the clinician in, remembers the session, and
-gives the app's server a private door to the clinic's FHIR data. **There is no launch,
-sign-in or session code in this app, and you never write any.**
+The SMART sidecar that runs beside the app does everything security-related: the EHR launch, the
+OAuth sign-in, the session and the tokens. **There is no launch, sign-in or token code in this
+app, and you never write any.** The app's server asks the sidecar for FHIR data through the `fhir`
+helper, and the sidecar answers for the visitor of the request.
 
-What you work with is FHIR: which resources the tool needs, and what it shows or files.
+Patient data passes through this app's server code on its way to the page, so the six rules in
+`CLAUDE.md` ("Patient data from the EHR") apply to everything you build here. If a request can
+only be met by breaking one, tell the clinician in one sentence that this app cannot do that and
+that Tiro can advise.
 
-## The rules, before anything else
+## What the EHR serves: read the FHIR guide first
 
-Patient data passes through this app's server code on its way to the page. These rules have no
-exceptions. If a request can only be met by breaking one, do not build it: tell the clinician
-in one sentence that this app cannot do that, and that Tiro can advise.
+Before building on a resource type, a search parameter or an interaction, fetch the guide of the
+FHIR facade. Do not rely on memory or on the local test EHR, which serves more than the real one.
 
-1. **Never log patient data.** No `console.log`, `console.error` or any other output of a
-   resource, a name, an id, a birth date, a search value or an EHR error body, on the server
-   or in the browser. Do not put patient data in an error message or in a web address.
-2. **Never keep patient data on the server between requests.** No variable outside a function,
-   no cache, no file, no database, no shared `QueryClient`. A server function fetches, returns,
-   and forgets.
-3. **Never send patient data to another host.** The server talks to the EHR through the `fhir`
-   helper and to nothing else. No request to any other service that carries patient data: no
-   AI service, no analytics, no error tracker, no webhook, no e-mail. The same holds for the
-   browser.
-4. **Never write code that handles a token, a key or an OAuth redirect.** No sign-in page, no
-   `Authorization` header, no reading or setting of cookies, no credentials in environment
-   variables (none exist). The platform does all of it.
-5. **Never define a page or file on `/launch`, `/callback` or `/.well-known/jwks.json`.** They
-   belong to the platform. `pnpm check` fails if one appears.
-6. **Never put real patient data in the repository.** Test data lives in `fixtures/` and is
-   invented.
+- R4: https://fhir.tirohealth.app/latest/r4/en/llms.txt
+- R5: https://fhir.tirohealth.app/latest/r5/en/llms.txt
 
-## What the app can read and write
+Each file indexes the pages of that guide as Markdown, relative to its own address (for example
+`.../r4/en/StructureDefinition-ehr-encounter.md`). Fetch only the pages the feature needs:
 
-The `fhir` helper works with **any FHIR resource type and any search parameter**: it holds no
-list of its own. What exists is decided by the EHR, and what this app may use is decided by
-its permissions (see "Permissions"). So before building on a type, find out, do not assume:
+- `CapabilityStatement-ehr-facade.md`: the resource types the facade serves, the interactions
+  (read, search, create, update, delete) and the search parameters of each. A type, interaction or
+  parameter not listed there is not served: tell the clinician it is not available instead of
+  working around it.
+- `StructureDefinition-<profile>.md`: the fields of a resource and the code systems it uses.
+- `CodeSystem-<name>.md`: the codes (for example the document kinds for `createDocumentReference`).
 
-- `await fhir.request('GET', 'metadata')` returns the EHR's CapabilityStatement: per resource
-  type the interactions (`read`, `search-type`, `create`, `update`, `delete`) and the search
-  parameters it accepts. The local EHR (fhir-candle) serves more than the real EHR: check the
-  table below and `fixtures/README.md` before relying on a type or parameter. Use it while
-  building, not in a page.
-- A type the EHR does not serve answers status 404; an interaction it does not have for a
-  type, or an operation such as `$everything`, answers 400. The error message says which.
-  Tell the clinician it is not available instead of working around it.
-
-What the Tiro EHR served when this was written (it changes; the CapabilityStatement decides):
-
-| Resource                             | Read, search | Create | Update | Delete | Search parameters                                                    |
-| ------------------------------------ | ------------ | ------ | ------ | ------ | -------------------------------------------------------------------- |
-| `Patient`                            | yes          | no     | no     | no     | `_id`, `family`, `given`, `gender`, `identifier`                     |
-| `Practitioner`                       | yes          | no     | no     | no     | `_id`, `family`, `given`, `identifier`                               |
-| `Encounter`                          | yes          | yes    | yes    | yes    | `_id`, `status`, `class`, `date`, `date-start`, `patient`, `subject` |
-| `DocumentReference`                  | yes          | yes    | no     | no     | `_id`, `identifier`, `patient`, `subject`                            |
-| `MedicationRequest`                  | yes          | yes    | yes    | no     | `_id`, `status`, `identifier`, `encounter`, `patient`, `subject`     |
-| `Task`                               | yes          | yes    | yes    | no     | `_id`, `status`, `code`, `identifier`, `focus`, `patient`            |
-| `Basic` (app state)                  | yes          | yes    | yes    | yes    | `_id`, `code`, `subject`                                             |
-| `Coverage`, `Claim`, `ClaimResponse` | yes          | yes    | no     | no     | see the CapabilityStatement                                          |
-
-- Text and code parameters match exactly, capitals included. There is no "contains" or "starts
-  with": filter and sort further in the server function. A parameter the EHR does not know is
-  refused (status 400); the error lists the parameter names that were sent.
-- The app is launched for one patient. With a `patient/...` permission, searches return only
-  that patient's data; you do not pass the patient yourself.
-- **Updating**: read the resource, change the copy, pass the whole copy to `fhir.update()`.
-  The EHR refuses an update that does not carry the version that was read (status 428) and one
-  made on an outdated copy (status 412): read again and retry. Never build the resource to
-  update from scratch.
-- **Deleting**: `fhir.delete(resource)` with the resource as read. Ask the clinician before
-  building anything that deletes from the record.
-- **Filing a document**: `fhir.createDocumentReference()`: the file inline, at most 10 MiB,
-  with a `type` code from the clinic's document kinds (`urn:tiro-health:document-kind`). Do
-  not set `date` or `context`; the EHR refuses them.
-- The EHR does not send related resources along with a search (`_include`) today.
+Use R4 unless the feature needs something only R5 has (the guide says which, for example billing
+resources). The `fhir` helper and `@/hooks/ehr` speak R4. The local test EHR in `compose.yaml` is
+R4 too.
 
 ## The `fhir` helper (server only)
 
 `import { fhir } from '@/lib/fhir.server'`. It works only inside a server function or a route
-loader, and answers for the visitor of the request being handled.
+loader. Type resources with `import type { Patient } from 'fhir/r4'`; never write your own
+resource types.
 
 ```ts
-const ctx = await fhir.context()
-// { patient, encounter, practitioner, fhirUser, fhirVersion, scopes, intent }
-// patient / encounter / practitioner are ids, or null
-
+const ctx = await fhir.context() // { patient, encounter, practitioner, fhirUser, scopes, ... }; ids or null
 const patient = await fhir.read('Patient', ctx.patient)
-
-// Any parameter name. A list repeats the parameter ("all of these");
-// a comma inside one value means "any of these".
-const finished = await fhir.search('Encounter', { status: 'finished' })
-const recent = await fhir.search(
-  'Encounter',
-  { date: 'ge2026-01-01' },
-  { max: 50 },
-)
-
-// The matches plus whatever the EHR sent along (_include, _revinclude).
-const { matches, included } = await fhir.searchWithIncluded('Encounter', {
-  _include: 'Encounter:subject',
-})
-
+const done = await fhir.search('Encounter', { status: 'finished' }, { max: 50 })
 const made = await fhir.create<Basic>({
   resourceType: 'Basic',
   code: { text: 'settings' },
 })
-const changed = await fhir.update({ ...made, code: { text: 'new settings' } })
-await fhir.delete(changed) // or fhir.delete('Basic', id, { version })
-
-// Anything else under the FHIR base: an operation, a patch, a version read.
-// The path is relative; it cannot name another address.
-// Today the Tiro EHR has none of those; `metadata` is the one use.
-const statement = await fhir.request('GET', 'metadata')
-
-const saved = await fhir.createDocumentReference({
-  type: 'report', // a code from the clinic's document kinds
-  title: 'Score result',
+const changed = await fhir.update({ ...made, code: { text: 'new' } })
+await fhir.delete(changed)
+await fhir.createDocumentReference({
+  type: 'report',
+  title: 'Score',
   contentType: 'text/plain',
-  data: 'The text or the bytes of the file',
+  data,
 })
 ```
 
-Resources are typed with FHIR R4 types (`import type { Patient } from 'fhir/r4'`). Never write
-your own resource types. `search` follows the EHR's pages by itself, up to `max` (200).
+- Text and code search parameters match exactly. Filter and sort further in the server function.
+  Searches return only the launched patient's data with a `patient/...` scope.
+- To update, read the resource, change the copy and pass the whole copy back. The EHR refuses an
+  update without the version that was read (428) or on an outdated copy (412): read again and retry.
+- `createDocumentReference`: the file inline, at most 10 MiB. Do not set `date` or `context`.
+- Ask the clinician before building anything that deletes from the record.
 
-It throws three kinds of error (from `@/lib/fhir.server`):
+Errors, from `@/lib/fhir.server`: `NotLaunchedError` (opened directly, or the session ended: wrap
+calls in `fromEhr()` so the page gets `{ launched: false }`), `ScopeRefusedError` (`error.scope`
+names the missing permission) and `FhirRequestError` (`error.status`; its message is safe to
+show). Never show or log `error.outcome`: it is the EHR's text and can contain ids.
 
-- `NotLaunchedError`: the app was not opened from the EHR, or the session ended. Wrap the call
-  in `fromEhr()` (below) so the page gets `{ launched: false }` instead of an error.
-- `ScopeRefusedError`: the app was not granted the permission this call needs. `error.scope`
-  names it (see "Permissions").
-- `FhirRequestError`: any other refusal; `error.status` is the HTTP status. Its message is
-  safe to show and says what to do where it can (an unknown search parameter, a type the EHR
-  does not serve, a missing or outdated version). Never show or log `error.outcome`: it is the
-  EHR's own text and can contain ids.
+## Building a feature
 
-## Building a feature: the pattern
+Pages ask the EHR through the hooks in `@/hooks/ehr`, which sit on one small set of server
+functions (`src/lib/ehr.functions.ts`) that works for every resource type. **A feature normally
+needs no new server code.** Example, "the patient's last three encounters":
 
-Pages ask the EHR themselves, through the hooks in `@/hooks/ehr`. There is one small set of
-server functions behind them (`src/lib/ehr.functions.ts`) that works for every resource type;
-**a feature normally needs no new server code.**
+```tsx
+const { resources, launched, isLoading, error } = useFhirSearch('Encounter')
+const lastThree = [...resources]
+  .sort((a, b) => (b.period?.start ?? '').localeCompare(a.period?.start ?? ''))
+  .slice(0, 3)
+```
 
-Example: "show the patient's last three encounters".
+- `launched` is false when the app was opened directly: decide with the clinician what the page
+  shows then, or send the visitor to `<Navigate to="/not-launched" search={{ reason: 'not-from-ehr' }} />`.
+- Preload in the route so the data is there at first paint:
+  `loader: ({ context }) => context.queryClient.prefetchQuery(searchQuery('Encounter'))`, with the
+  same type, parameters and options as the hook.
+- Test the page with `@/lib/ehr.functions` mocked, as in `src/pages/home.test.tsx`, using the
+  invented data in `fixtures/r4/`. `@/lib/fhir/format` has `patientName()`, `formatDate()` and
+  `encounterTitle()`.
 
-1. **In the page** (or a small hook of its own next to it):
+| Hook                                                    | Gives                                                                        |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `useEhrContext()`                                       | `{ context }`: ids of the launched patient, encounter, user and the scopes   |
+| `usePatient()`, `useEncounters()`                       | the launched patient; their encounters, most recent first                    |
+| `useFhirRead(type, id)`                                 | `{ resource }`                                                               |
+| `useFhirSearch(type, params?, { max }?)`                | `{ resources, included }`                                                    |
+| `useFhirCreate()`, `useFhirUpdate()`, `useFhirDelete()` | a mutation; pass the resource as it was read; EHR data is refetched after it |
 
-   ```tsx
-   const { resources, launched, isLoading, error } = useFhirSearch('Encounter')
-   const lastThree = [...resources]
-     .sort((a, b) =>
-       (b.period?.start ?? '').localeCompare(a.period?.start ?? ''),
-     )
-     .slice(0, 3)
-   ```
-
-   `launched` is false when the app was opened directly; decide with the clinician what the
-   page shows then (nothing, or the tool with manual input). A page that makes no sense
-   without a patient can send the visitor to the explanation page:
-   `<Navigate to="/not-launched" search={{ reason: 'not-from-ehr' }} />`.
-
-2. **Preload** in the route, so the data is there when the page first appears:
-   `loader: ({ context }) => context.queryClient.prefetchQuery(searchQuery('Encounter'))`.
-   Use the same type, parameters and options as the hook, or it fetches twice.
-
-3. **Test** the page with `@/lib/ehr.functions` mocked, as in `src/pages/home.test.tsx`, using
-   the invented data in `fixtures/r4/` (import the JSON files). Use `patientName()`, `formatDate()` and
-   `encounterTitle()` from `@/lib/fhir/format` to show names and dates.
-
-The hooks:
-
-| Hook                                                    | Gives                                                                                                      |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `useEhrContext()`                                       | `{ context }`: ids of the launched patient, encounter and user, and the granted scopes                     |
-| `usePatient()`                                          | `{ patient }`: the launched patient                                                                        |
-| `useEncounters()`                                       | `{ encounters }`: the launched patient's encounters, most recent first                                     |
-| `useFhirRead(type, id)`                                 | `{ resource }`: one resource; waits while `id` is still unknown                                            |
-| `useFhirSearch(type, params?, { max }?)`                | `{ resources, included }`                                                                                  |
-| `useFhirCreate()`, `useFhirUpdate()`, `useFhirDelete()` | a mutation: `mutate(resource)`, `isPending`, `error`; afterwards all EHR data on the page is fetched again |
-
-All reading hooks also give `launched`, `isLoading` and `error`. For an update or delete, pass
-the resource as it was read (changed, for an update): it carries the version the EHR checks.
-
-Write a server function of your own (in a new `src/lib/<topic>.functions.ts`, with
-`createServerFn({ method: 'POST' })`, `fromEhr()` and the `fhir` helper) only when the server
-must do the work: filing a document (`fhir.createDocumentReference`), `fhir.request()`, or
-combining several calls into one small answer. Everything a hook fetches reaches the browser
-whole, so for a large or sensitive resource of which the page shows one field, trim it in a
-server function instead.
+Write a server function of your own (`src/lib/<topic>.functions.ts`, `createServerFn`,
+`fromEhr()`, `fhir`) only when the server must do the work: filing a document, or trimming a
+large or sensitive resource of which the page shows one field.
 
 ## Permissions: `smart.json`
 
-`smart.json` at the root of the repository lists what the app asks the EHR for:
+`smart.json` lists what the app asks the EHR for (`requiresPatient` and `scopes`). A scope is
+`patient/<ResourceType>.<letters>` with `r` read, `s` search, `c` create, `u` update, `d` delete;
+`user/Basic.cruds` is the app's own saved state. Leave `launch`, `openid`, `fhirUser` and
+`offline_access` as they are.
 
-```json
-{
-  "requiresPatient": true,
-  "scopes": [
-    "launch",
-    "openid",
-    "fhirUser",
-    "patient/Patient.rs",
-    "patient/Encounter.rs",
-    "offline_access",
-    "user/Basic.cruds"
-  ]
-}
-```
-
-- A scope is `patient/<ResourceType>.<letters>`: `r` read one, `s` search, `c` create,
-  `u` update, `d` delete. `patient/Observation.rs` reads and searches the launched patient's
-  observations; `patient/DocumentReference.c` files documents. `user/<ResourceType>.<letters>`
-  is for data that does not belong to one patient, such as the app's own saved state
-  (`user/Basic.cruds`).
-- `smart.json` is the app's own record of what it needs, and the local preview grants exactly
-  what it lists. **The hosting platform does not read it yet**: online, the app gets what Tiro
-  registered for it in the EHR and the clinic approved, which can be less than the app asks.
-- **To add one**: add the line to `scopes`, run `pnpm check`, and tell the clinician once,
-  plainly: the extra access works in the local preview at once, but online it only works after
-  they ask Tiro to add it to the app's registration and the clinic approves it. Ask for the
-  least the tool needs.
-- `requiresPatient` is `true` when the tool is about one patient. Leave the first three scopes
-  and `offline_access` as they are.
-- A `ScopeRefusedError` names the scope that was not granted, in the words of `smart.json`
-  when that already lists it (then only Tiro's registration is missing). Never catch it to hide it. Build
-  the page so the rest still works when one kind of data is refused, and say which is missing.
-- `fhir.context()` can return `practitioner: null`: the EHR does not always say who is signed
-  in. Do not assume a practitioner.
+- The local preview grants exactly what `smart.json` lists. The hosting platform does not read it
+  yet: online, the app gets what Tiro registered for it and the clinic approved, which can be less.
+- To add a scope: add it to `smart.json` and to `SMART_SCOPES` in `compose.yaml` (without `launch`,
+  `openid`, `fhirUser`), run `pnpm check`, then tell the clinician once: it works in the preview at
+  once, but online only after Tiro adds it to the app's registration and the clinic approves it.
+  Ask for the least the tool needs.
+- Build the page so the rest still works when one kind of data is refused, and say which is
+  missing. Never catch `ScopeRefusedError` to hide it. `fhir.context().practitioner` can be null.
 
 ## Trying it locally
 
-`docker compose up` starts the local EHR, then `pnpm dev` the app at http://127.0.0.1:3000. The
-app reaches the EHR exactly as online, through Tiro's sidecar on 127.0.0.1:8081. The sidecar
-runs in dev mode: one fixed session, no launch, against fhir-candle with the invented data in
-`fixtures/` (patient "Jeanne Voorbeeld", `patient-1`, with three encounters). Docker must run.
-
-Switch the **debug scenario** at http://localhost:8080/_dev, or start with
-`SMART_DEV_SCENARIO=<name> docker compose up`. Try each one that matters for the feature:
-
-| Scenario            | `fhir.context()`                         | FHIR requests                                                 |
-| ------------------- | ---------------------------------------- | ------------------------------------------------------------- |
-| `patient` (default) | `patient: 'patient-1'`, `encounter` null | answered                                                      |
-| `patient-encounter` | `patient-1` and `encounter-1`            | answered                                                      |
-| `no-patient`        | `patient` and `encounter` null           | answered                                                      |
-| `scope-denied`      | `patient-1`, scopes `patient/Patient.rs` | other types: `ScopeRefusedError` (403)                        |
-| `expired`           | `NotLaunchedError` (401)                 | `NotLaunchedError`: the page shows the app as opened directly |
-
-- The local sidecar grants the scopes in `compose.yaml` (`SMART_SCOPES`), which `pnpm check`
-  keeps equal to `smart.json`: after adding a scope to `smart.json`, add it to `SMART_SCOPES`
-  (without `launch`, `openid` and `fhirUser`) and restart with `docker compose up`. It refuses
-  a request the scopes do not allow, as the real EHR does.
-- fhir-candle is more permissive than the real EHR: it serves every resource type and ignores
-  unknown search parameters, and it does not scope searches to the patient. `fixtures/README.md`
-  lists the differences. A type that works locally but is not in the table above will answer
-  404 online: say so to the clinician.
-- To have data of another type locally, add an invented resource as a file in `fixtures/r4/`
-  (`<Type>-<id>.json`, pointing at `Patient/patient-1`) and in `fixtures/r5/`, then restart
-  with `docker compose restart fhir-candle`. Changes made through the app are lost on restart.
-- The app is first opened from a real patient's Apps tab after it is published (`publish`).
-
-`pnpm test:e2e` builds the app and drives it in a real browser against the local EHR, switching
-through the scenarios. Run it, with `docker compose up`, after changing anything that uses EHR
-data.
+`docker compose up`, then `pnpm dev`. The sidecar runs in dev mode against fhir-candle with the
+invented data in `fixtures/`, as described in `CLAUDE.md` ("The local EHR"), with the same
+debug scenarios at http://localhost:8080/_dev. Try each scenario that matters for the feature.
+fhir-candle is more permissive than the real EHR (`fixtures/README.md` lists the differences):
+a type that works locally but is not in the facade's CapabilityStatement answers 404 online.
+To have data of another type locally, add an invented file to `fixtures/r4/` (and `r5/`), pointing
+at `Patient/patient-1`, then `docker compose restart fhir-candle`. `pnpm test:e2e` drives the built
+app against the local EHR through the scenarios; run it after changing anything that uses EHR data.
 
 ## What to tell the clinician
 
