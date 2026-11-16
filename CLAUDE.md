@@ -30,17 +30,17 @@ clinical tools with Claude Code. The person you are working with is a medical do
 
 ## Stack (do not change)
 
-| Concern       | Choice                                               |
-| ------------- | ---------------------------------------------------- |
-| Language      | TypeScript, strict                                   |
-| Framework     | React 19 + TanStack Start (server rendering), Vite   |
-| Routing       | TanStack Router, file-based routes in `src/routes/`  |
-| Styling       | Tailwind CSS v4                                      |
-| UI components | shadcn/ui on Base UI, in `src/components/ui/`        |
-| Icons         | lucide-react                                         |
-| EHR data      | `fhir` helper on the server, TanStack Query in pages |
-| Tests         | Vitest + Testing Library, Playwright for the browser |
-| Hosting       | tirohealth.app via Tiro's shared build workflow      |
+| Concern       | Choice                                                    |
+| ------------- | --------------------------------------------------------- |
+| Language      | TypeScript, strict                                        |
+| Framework     | React 19 + TanStack Start (server rendering), Vite        |
+| Routing       | TanStack Router, file-based routes in `src/routes/`       |
+| Styling       | Tailwind CSS v4                                           |
+| UI components | Tiro's shadcn registry (`@tiro`), in `src/components/ui/` |
+| Icons         | lucide-react                                              |
+| EHR data      | `fhir` helper on the server, TanStack Query in pages      |
+| Tests         | Vitest + Testing Library, Playwright for the browser      |
+| Hosting       | tirohealth.app via Tiro's shared build workflow           |
 
 Pages are rendered on a small Node server (built by Nitro into `.output/`) and then take over in the browser. The
 server keeps no data: it renders pages and, when the app was opened from the EHR, passes the
@@ -90,11 +90,11 @@ src/
   lib/fhir.server.ts   The `fhir` helper. Server only.
   lib/ehr.functions.ts Server functions behind the hooks. They work for any resource type.
   router.tsx           Router setup. Rarely touched.
-  styles.css           Tailwind and theme variables (colours live here).
+  styles.css           Tailwind and Tiro's Halo theme (colours, corners and font live here).
   routes/              One file per URL. __root.tsx is the HTML shell and the shared header.
   pages/               The actual page content, one file per page, plus its test.
   components/          Reusable pieces built for this app.
-  components/ui/       shadcn components. Add more with `pnpm dlx shadcn@latest add <name>`.
+  components/ui/       Tiro's components. Add more with `pnpm dlx shadcn@latest add @tiro/<name>`.
   lib/                 Helpers.
 smart.json             What the app needs from the EHR (scopes). Checked by `pnpm check`.
 compose.yaml           The local EHR: Tiro's sidecar in dev mode and a FHIR server with fixtures/.
@@ -131,8 +131,12 @@ Docker must be installed (Docker Desktop on a laptop). Never change `compose.yam
 
 - **New page**: create `src/routes/<name>.tsx` that renders a component from `src/pages/<name>.tsx`.
   Add a link in the header in `src/routes/__root.tsx`. The route tree regenerates on its own.
-- **UI**: use the shadcn components in `src/components/ui/` before writing custom markup. Add
-  missing ones with the shadcn CLI, never by hand. Never edit files in `src/components/ui/`, with
+- **UI**: use the components in `src/components/ui/` before writing custom markup. They come from
+  Tiro's shadcn registry, registered as `@tiro` in `components.json`; the list is at
+  https://ui.tirohealth.app/latest/registry.json and the shadcn MCP in `.mcp.json` can search it.
+  Add missing ones with `pnpm dlx shadcn@latest add @tiro/<name>`, never by hand, and only fall
+  back to a stock shadcn component (`add <name>`) when Tiro's registry has none. The look is
+  Tiro's Halo theme (`@tiro/halo-theme`) in `src/styles.css`. Never edit files in `src/components/ui/`, with
   one exception: the CLI sometimes writes `import { cn } from "cn"` and adds a `cn` package. Point
   the import at `@/lib/utils` and run `pnpm remove cn`.
 - **Imports**: use the `@/` alias for anything under `src/`.
