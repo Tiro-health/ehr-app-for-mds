@@ -1,10 +1,10 @@
 # Checks and builds the app with Tiro's shared workflow. On pushes to main it publishes the
 # app to https://<app>.tirohealth.app once the checks and build pass.
 #
-# Replace REPLACE-WITH-YOUR-APP-NAME with your app's name as shown on the EHR's setup page,
-# where you also link this repository to the app. The setup page shows this file with the
-# name filled in. Until then, pull requests are checked and built, and a push to main fails
-# at the publish step with "The app name ... is not valid".
+# The app's name comes from the repository variable TIRO_EHR_APP_NAME. When you link this
+# repository on the EHR's setup page (https://ehr.tiro.health/platform/setup), Tiro.health sets
+# it and starts this workflow once the app is set up. Until then pushes to main are checked and
+# built, and the publish job passes with a "Not published" notice. Change nothing in this file.
 name: Build
 
 on:
@@ -22,7 +22,7 @@ jobs:
     if: github.repository != 'Tiro-health/ehr-app-for-mds' || github.ref != 'refs/heads/main'
     uses: Tiro-health/ehr-app-build/.github/workflows/build.yml@v2
     with:
-      app: REPLACE-WITH-YOUR-APP-NAME
+      app: ${{ vars.TIRO_EHR_APP_NAME }}
     # The publish step signs in to Google Cloud with this run's GitHub identity. A called
     # workflow gets no more permissions than these.
     permissions:

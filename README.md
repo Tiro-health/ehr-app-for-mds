@@ -24,9 +24,9 @@ registries: if you can describe it, you can build it.
 
 Claude will ask what you want to build, set the app up, and publish it. The first time, Tiro
 registers your app, which gives it a web address on tirohealth.app, and you link your repository
-to it on the EHR's setup page. That page shows the one line Claude puts in
-`.github/workflows/build.yml`: `app: <your app name>`, in place of `REPLACE-WITH-YOUR-APP-NAME`.
-Until then your changes are checked and built, but not published.
+to it on the EHR's setup page (https://ehr.tiro.health/platform/setup). Tiro.health then names
+the app in this repository's settings and publishes it; no file changes. Until then your
+changes are checked and built, but not published.
 
 ## After that
 
