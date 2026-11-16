@@ -11,6 +11,12 @@ registries: if you can describe it, you can build it.
 
 ## Get started
 
+**Did Tiro.health send you a setup link?** Open it first. That page walks you through connecting
+Claude with GitHub, creating your repository from this template and linking it to Tiro.health.
+When it tells you to, open the repository in Claude Code and type `/onboarding` (step 3 below).
+
+Without a setup link:
+
 1. [**Create your repository from this template**](https://github.com/new?template_owner=Tiro-health&template_name=ehr-app-for-mds&owner=%40me&name=my-clinical-app&description=My+clinical+tool%2C+built+with+Claude+Code&visibility=public).
    Change the name if you like.
 2. Open your new repository in Claude Code.

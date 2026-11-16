@@ -40,8 +40,14 @@ Do not ask about colours, fonts or layout. Pick calm, clinical defaults. They ca
 
 ## 3. Get the web address started
 
-The app needs a web address, and Tiro registers every address by hand. Start now and let it run
-while you build.
+First check whether that is already done: `gh variable get TIRO_EHR_APP_NAME`. A clinician who
+started from a setup link Tiro sent them (`https://ehr.tiro.health/platform/setup/<name>`) has
+already created this repository from that page, installed the Tiro.health GitHub App and linked
+the repository. The variable then holds the app's name. Tell them in one sentence that their
+address is `https://<name>.tirohealth.app`, skip the rest of this section, and go to step 4.
+
+If the variable is empty, the app needs a web address, and Tiro registers every address by hand.
+Start now and let it run while you build.
 
 1. **Install the Tiro.health GitHub App.** Explain in one sentence that it is the app that lets
    Tiro put their tool online. Ask them to open
