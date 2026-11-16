@@ -27,8 +27,9 @@ that command, then `gh workflow run build.yml --ref main` once the page says the
 ## 1. Check and push
 
 1. Run `pnpm check`. Fix anything it reports; never publish a broken build.
-2. Make sure all work is committed on `main`. Commit with a plain-language message if not.
-3. `git push origin main`.
+2. Make sure all work is committed on the default branch (`main` unless the repository says
+   otherwise). Commit with a plain-language message if not.
+3. Push it (`git push origin main`).
 
 ## 2. Wait for the Tiro.health checks
 
