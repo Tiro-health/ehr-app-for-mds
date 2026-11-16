@@ -24,6 +24,30 @@ and links this repository. Tiro.health then sets the variable and starts the fir
 If the setup page says it could not set the variable, it shows a `gh variable set` command: run
 that command, then `gh workflow run build.yml --ref main` once the page says the app is ready.
 
+## 0b. The Tiro.health deploy app
+
+Tiro puts the app online through a GitHub app, **tiro-health-deploy**. If it is not installed on
+this repository, nothing is published, however green the build is. Check this before the first
+publish, and again whenever Publish fails with a message about the deploy app or about access to
+the repository.
+
+`gh` cannot ask GitHub directly which repositories an app covers, so look for evidence, in order:
+
+1. `gh api repos/{owner}/{repo}/commits?per_page=10 -q '.[].sha'`, then for each sha
+   `gh api repos/{owner}/{repo}/commits/<sha>/check-suites -q '.check_suites[].app.slug'`. If
+   `tiro-health-deploy` appears on a recent commit, it is installed here. Done.
+2. `gh api orgs/<owner>/installations -q '.installations[] | select(.app_slug=="tiro-health-deploy") | .repository_selection'`
+   (only for a repository owned by an organization; a 403 means the clinician cannot see this,
+   go on to 3). No output: it is not installed. `all`: it is installed here. Done. `selected`:
+   it is installed, but maybe not for this repository; go on to 3.
+3. Not confirmed. Ask the clinician to open https://github.com/apps/tiro-health-deploy/installations/new,
+   choose the account or organization that owns this repository, and make sure this repository
+   is ticked (or "All repositories" is chosen), then save. Say in one sentence why: it is what
+   lets Tiro put their app online. If GitHub says they can only _request_ it, an owner of the
+   organization has to approve the request; tell them so, and that publishing waits until then.
+
+Once it is installed, re-run the last failed run (`gh run rerun <id>`) or carry on with step 1.
+
 ## 1. Check and push
 
 1. Run `pnpm check`. Fix anything it reports; never publish a broken build.
@@ -50,7 +74,10 @@ clinician it is on its way while you wait.
   variable names the wrong app, the repository is not linked on the setup page yet, or Tiro paused
   the app. Check the name with the clinician; if it is right, ask them to link the repository on
   the setup page, or to contact Tiro. Then re-run the workflow (`gh run rerun <id>`).
-- **Any other failure in Publish**: a problem on Tiro's side, not in the app. The previous
+- **Publish fails about the deploy app or access to the repository**, or Build passes but
+  Publish never puts anything online: tiro-health-deploy is probably not installed here. Do
+  step 0b.
+- **Any other failure in Publish**: do step 0b once to rule out the deploy app; otherwise it is a problem on Tiro's side, not in the app. The previous
   version stays online. Re-run once; if it fails again, tell the clinician to contact Tiro.
 - **Success**: the run summary names `https://<app>.tirohealth.app`
   (`gh run view <id>` shows it). Confirm it answers with `curl -sI <url>` and report it in one
