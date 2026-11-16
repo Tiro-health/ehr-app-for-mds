@@ -5,7 +5,10 @@
 # repository on the EHR's setup page (https://ehr.tiro.health/platform/setup), Tiro.health sets
 # it and starts this workflow once the app is set up. Until then pushes to main are checked and
 # built, and the publish job passes with a "Not published" notice. Change nothing in this file.
-name: Build
+#
+# GitHub names each check after this workflow, this job and the shared job, so a commit shows
+# "Tiro.health / App / Build" and "Tiro.health / App / Publish".
+name: Tiro.health
 
 on:
   push:
@@ -15,7 +18,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  app:
+    name: App
     # Only for Tiro's template repository itself, which is no app: it skips pushes to its main,
     # where the shared workflow would always publish. Its pull requests are still checked and
     # built. In your app this line does nothing; leave it or remove it.
