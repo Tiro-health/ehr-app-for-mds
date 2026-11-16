@@ -155,9 +155,8 @@ Docker must be installed (Docker Desktop on a laptop). Never change `compose.yam
 - **Formatting and lint**: `pnpm format` fixes, `pnpm check` verifies (types, lint, format, tests).
 - **Deploy**: pushing to `main` publishes (see `/publish`). `.github/workflows/build.yml` runs
   `pnpm check` and `pnpm build` through Tiro's shared workflow; both must pass before anything is
-  published. Its `app:` line names the app: the template has `REPLACE-WITH-YOUR-APP-NAME` there,
-  which must become the app's name as shown on the EHR's setup page (the page shows the whole file
-  with the name filled in). Change nothing else in it.
+  published. Its `app:` line reads the repository variable `TIRO_EHR_APP_NAME`, which the EHR's
+  setup page sets when the repository is linked. Change nothing in the file.
 - **No new dependencies** unless they replace real complexity. Prefer plain code.
 
 ## Commands

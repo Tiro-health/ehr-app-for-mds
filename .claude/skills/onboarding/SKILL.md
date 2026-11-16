@@ -99,12 +99,13 @@ Tiro already chose the address, so there is nothing to agree and nothing to wait
    app goes online at that address on the first publish after approval, and that you can keep
    building in the meantime. Note the issue URL for the publish step.
 
-### Then, either way: the app's name in the workflow
+### Then, either way: link the repository
 
 Once Tiro has registered the app, the clinician links this repository on the EHR's setup page
-(https://ehr.tiro.health/platform/setup), which shows the app's name. Put it on the `app:` line
-of `.github/workflows/build.yml` in place of `REPLACE-WITH-YOUR-APP-NAME` (step 0 of `publish`).
-Until then, pushes to `main` are checked and built but not published.
+(https://ehr.tiro.health/platform/setup). Tiro.health then sets the repository variable
+`TIRO_EHR_APP_NAME` and starts the first publish; no file changes (step 0 of `publish`). Until
+then, pushes to `main` are checked and built, and the publish job passes with a "Not published"
+notice.
 
 ## 4. Patient data, said once
 

@@ -14,14 +14,15 @@ address to the run's summary. Pull requests are checked and built, never publish
 Everything here needs `gh`, logged in (`gh auth status`). If it is missing, install it and run
 `gh auth login` with the clinician, explaining in one sentence that it lets you publish for them.
 
-## 0. The app's name in the workflow
+## 0. The app's name
 
-`.github/workflows/build.yml` has `app: <name>`. In a fresh repository it reads
-`REPLACE-WITH-YOUR-APP-NAME`. The name comes from Tiro: once Tiro has registered the app, the
-clinician signs in with GitHub on the EHR's setup page (https://ehr.tiro.health/platform/setup),
-links this repository, and the page shows `build.yml` with the name filled in. Ask the clinician
-for that name (lowercase letters, digits and hyphens), put it on the `app:` line, change nothing
-else in the file, and commit.
+`.github/workflows/build.yml` reads the app's name from the repository variable
+`TIRO_EHR_APP_NAME`; never edit the file for it. Check it with `gh variable get TIRO_EHR_APP_NAME`.
+If it is missing, the repository is not linked yet: once Tiro has registered the app, the
+clinician signs in with GitHub on the EHR's setup page (https://ehr.tiro.health/platform/setup)
+and links this repository. Tiro.health then sets the variable and starts the first publish itself.
+If the setup page says it could not set the variable, it shows a `gh variable set` command: run
+that command, then `gh workflow run build.yml --ref main` once the page says the app is ready.
 
 ## 1. Check and push
 
@@ -39,14 +40,16 @@ clinician it is on its way while you wait.
 
 - **Check and build failed**: `pnpm check` or `pnpm build` failed, and nothing was published. Read
   the log with `gh run view <id> --log-failed`, fix, commit, push again.
-- **"No Tiro app given"** or **"The app name … is not valid"**: the `app:` line is missing or
-  still the placeholder. Do step 0.
+- **Publish to Tiro passed with a "Not published" notice**: the variable is not set, so the
+  repository is not linked yet. Nothing went wrong. Do step 0.
+- **"The app name … is not valid"**: the variable holds something that is not an app name. Do
+  step 0 with the clinician.
 - **"This app is still being set up on Tiro"**: a newly linked app; the job retries for up to ten
   minutes by itself. Wait.
 - **"This repository is not linked to a Tiro app, or the app is suspended"**: the name on the
-  `app:` line is wrong, the repository is not linked on the setup page yet, or Tiro paused the app.
-  Check the name with the clinician; if it is right, ask them to link the repository on the
-  setup page, or to contact Tiro. Then re-run the workflow (`gh run rerun <id>`).
+  variable names the wrong app, the repository is not linked on the setup page yet, or Tiro paused
+  the app. Check the name with the clinician; if it is right, ask them to link the repository on
+  the setup page, or to contact Tiro. Then re-run the workflow (`gh run rerun <id>`).
 - **Any other failure in Publish to Tiro**: a problem on Tiro's side, not in the app. The previous
   version stays online. Re-run once; if it fails again, tell the clinician to contact Tiro.
 - **Success**: the run summary names `https://<app>.tirohealth.app`
