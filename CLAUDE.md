@@ -54,6 +54,11 @@ app contains no launch, sign-in or session code. Server functions and route load
 write FHIR through `fhir` from `@/lib/fhir.server`; pages use the hooks in `@/hooks/ehr`. The
 `connect-to-ehr` skill has the details and a worked example.
 
+A page that is useless without the EHR calls `requireLaunch(queryClient)` from `@/hooks/ehr` in its
+route loader, after `preloadPatient`. The visitor who opened the app directly, or whose session
+ended, is then sent to `/not-launched`, which says to start the app from the EHR. The app cannot
+start the sign-in itself: only the EHR can launch it. The home page does this.
+
 So patient data from the EHR passes through this app's server code. These rules are absolute:
 
 1. **Never log patient data.** Not on the server, not in the browser: no `console.*` of a

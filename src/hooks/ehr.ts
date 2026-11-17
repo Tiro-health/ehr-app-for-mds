@@ -6,6 +6,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import type { QueryClient, UseQueryResult } from '@tanstack/react-query'
+import { redirect } from '@tanstack/react-router'
 import type { FhirResource } from 'fhir/r4'
 import {
   ehrContext,
@@ -76,6 +77,19 @@ export async function preloadPatient(queryClient: QueryClient) {
   const answer = queryClient.getQueryData(contextQuery.queryKey)
   if (answer?.launched && answer.data.patient) {
     await queryClient.prefetchQuery(readQuery('Patient', answer.data.patient))
+  }
+}
+
+/**
+ * Use in a route loader of a page that is useless without the EHR. When the app was opened
+ * directly, or its session ended, the visitor is sent to the explanation page, which says to
+ * start the app from the EHR. The app cannot start a sign-in itself: only the EHR can launch
+ * it (the sidecar's /launch needs the EHR's launch parameters), and the app holds no
+ * sign-in code. Call it after `preloadPatient`, which fills the cache it reads.
+ */
+export function requireLaunch(queryClient: QueryClient) {
+  if (queryClient.getQueryData(contextQuery.queryKey)?.launched === false) {
+    throw redirect({ to: '/not-launched', search: { reason: 'not-from-ehr' } })
   }
 }
 
