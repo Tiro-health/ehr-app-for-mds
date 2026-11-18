@@ -58,6 +58,19 @@ Every page is open to anyone unless its route loader calls `requireEhr` from `@/
 sends a visitor whose needs are not met to `/not-launched`. Whether a page works without the EHR is
 the clinician's decision: ask. The skill's "Pages with and without the EHR" says how.
 
+**Look up what the EHR offers, proactively.** The EHR's FHIR guide is the only source of truth
+for which resource types the app can reach, what can be done with each (read, search, create,
+update, delete) and which search parameters and fields exist. Fetch it yourself, without being
+asked, as soon as the clinician describes a tool that could use patient or clinic data, before
+you propose what the tool can do, and again before you build on a resource type:
+
+- R4: https://fhir.tirohealth.app/latest/r4/en/llms.txt (start at `CapabilityStatement-ehr-facade.md`)
+- R5: https://fhir.tirohealth.app/latest/r5/en/llms.txt
+
+Never answer "can the app see ...?" from memory or from the local EHR, which serves more than the
+real one. If the guide does not list it, tell the clinician it is not available instead of working
+around it. The `connect-to-ehr` skill says how to read the guide.
+
 So patient data from the EHR passes through this app's server code. These rules are absolute:
 
 1. **Never log patient data.** Not on the server, not in the browser: no `console.*` of a
