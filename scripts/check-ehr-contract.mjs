@@ -13,8 +13,10 @@ import { pathToFileURL } from 'node:url'
 
 export const RESERVED_PATHS = ['/launch', '/callback', '/.well-known/jwks.json']
 
+// A resource scope may end in a filter, as the FHIR guide gives for the kinds of Basic:
+// "user/Basic.rs?code=urn:tiro-health:basic-kind|api-key&provider=gemini".
 const SCOPE =
-  /^(launch|launch\/patient|launch\/encounter|openid|fhirUser|profile|offline_access|online_access|(patient|user)\/([A-Z][A-Za-z]+|\*)\.c?r?u?d?s?)$/
+  /^(launch|launch\/patient|launch\/encounter|openid|fhirUser|profile|offline_access|online_access|(patient|user)\/([A-Z][A-Za-z]+|\*)\.c?r?u?d?s?(\?[^\s?#]+)?)$/
 
 const normalise = (path) => path.toLowerCase().replace(/\/+$/, '') || '/'
 
@@ -45,7 +47,11 @@ export function manifestProblems(manifest) {
     return [...problems, '"scopes" must be a list with at least one scope.']
   }
   for (const scope of scopes) {
-    if (typeof scope !== 'string' || !SCOPE.test(scope) || /\.$/.test(scope)) {
+    if (
+      typeof scope !== 'string' ||
+      !SCOPE.test(scope) ||
+      /\.(\?|$)/.test(scope)
+    ) {
       problems.push(
         `"${scope}" is not a scope the EHR knows. Examples: "patient/Observation.rs" (read and search), "patient/DocumentReference.c" (create).`,
       )

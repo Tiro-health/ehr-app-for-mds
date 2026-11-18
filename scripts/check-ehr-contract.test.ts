@@ -49,6 +49,19 @@ test('explains what is wrong with a manifest', () => {
   ).toEqual(['"scopes" lists the same scope twice.'])
 })
 
+test('accepts a filtered scope, as the FHIR guide writes it', () => {
+  const scope =
+    'user/Basic.rs?code=urn:tiro-health:basic-kind|api-key&provider=gemini'
+  expect(
+    manifestProblems({ requiresPatient: false, scopes: ['launch', scope] }),
+  ).toEqual([])
+  const [problem] = manifestProblems({
+    requiresPatient: false,
+    scopes: ['launch', 'user/Basic.?code=x'],
+  })
+  expect(problem).toContain('is not a scope')
+})
+
 test('the local sidecar grants the scopes of smart.json', () => {
   const manifest = JSON.parse(readFileSync('smart.json', 'utf8'))
   const granted = composeScopes(readFileSync('compose.yaml', 'utf8'))
