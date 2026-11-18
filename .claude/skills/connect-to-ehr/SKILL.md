@@ -153,7 +153,8 @@ export const Route = createFileRoute('/summary')({
 
 `smart.json` lists what the app asks the EHR for (`requiresPatient` and `scopes`). A scope is
 `patient/<ResourceType>.<letters>` with `r` read, `s` search, `c` create, `u` update, `d` delete;
-`user/Basic.cruds` is the app's own saved state. Leave `launch`, `openid`, `fhirUser` and
+`user/Basic.cruds` is the app's own saved state. A scope can end in a filter, as the guide's
+`smart-scopes.md` lists them; the key of the AI service is one (see the `use-ai` skill). Leave `launch`, `openid`, `fhirUser` and
 `offline_access` as they are.
 
 - The local preview grants exactly what `smart.json` lists. The hosting platform does not read it
