@@ -1,0 +1,20 @@
+{
+  "resourceType": "Basic",
+  "id": "api-key-gemini",
+  "meta": {
+    "profile": ["https://ehr.tiro.health/fhir/StructureDefinition/ehr-api-key"]
+  },
+  "extension": [
+    {
+      "url": "https://ehr.tiro.health/fhir/StructureDefinition/api-key-provider",
+      "valueCode": "gemini"
+    },
+    {
+      "url": "https://ehr.tiro.health/fhir/StructureDefinition/api-key-value",
+      "valueString": "invented-key-for-the-local-ehr"
+    }
+  ],
+  "code": {
+    "coding": [{ "system": "urn:tiro-health:basic-kind", "code": "api-key" }]
+  }
+}

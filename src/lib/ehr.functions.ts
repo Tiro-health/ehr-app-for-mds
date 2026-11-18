@@ -2,6 +2,7 @@ import { createServerFn } from '@tanstack/react-start'
 import type { FhirResource } from 'fhir/r4'
 import { fhir } from '@/lib/fhir.server'
 import type { SearchParams } from '@/lib/fhir.server'
+import { isApiKey } from '@/lib/fhir/api-key'
 import { fromEhr } from '@/lib/fhir/from-ehr'
 import type { ResourceType } from '@/lib/fhir/sidecar-client'
 
@@ -28,6 +29,11 @@ const resource = (value: unknown): FhirResource => {
   return value as FhirResource
 }
 
+// A key the EHR shares with the app (an EHRApiKey) is for the server only. These functions
+// answer the browser, so they never return one, whatever the page asks for.
+const noApiKey = <T extends FhirResource>(resource: T): T =>
+  isApiKey(resource) ? fail() : resource
+
 /** What the EHR told the app when it opened it: patient, encounter, user, permissions. */
 export const ehrContext = createServerFn({ method: 'POST' }).handler(() =>
   fromEhr(() => fhir.context()),
@@ -39,7 +45,9 @@ export const ehrRead = createServerFn({ method: 'POST' })
     type: string(record(input).type) as ResourceType,
     id: string(input.id),
   }))
-  .handler(({ data }) => fromEhr(() => fhir.read(data.type, data.id)))
+  .handler(({ data }) =>
+    fromEhr(async () => noApiKey(await fhir.read(data.type, data.id))),
+  )
 
 /** A search: the matches, and what the EHR sent along with them. */
 export const ehrSearch = createServerFn({ method: 'POST' })
@@ -58,9 +66,15 @@ export const ehrSearch = createServerFn({ method: 'POST' })
     },
   )
   .handler(({ data }) =>
-    fromEhr(() =>
-      fhir.searchWithIncluded(data.type, data.params, { max: data.max }),
-    ),
+    fromEhr(async () => {
+      const found = await fhir.searchWithIncluded(data.type, data.params, {
+        max: data.max,
+      })
+      return {
+        matches: found.matches.filter((resource) => !isApiKey(resource)),
+        included: found.included.filter((resource) => !isApiKey(resource)),
+      }
+    }),
   )
 
 /** Creates a resource and returns it as stored. */

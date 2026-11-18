@@ -6,6 +6,7 @@ restart the container to reset it.
 
 - Patient: `patient-1`, `patient-2`, `patient-3`
 - Practitioner: `practitioner-1`
+- Basic: `api-key-gemini`, the AI service's key as the EHR shares it (an invented value)
 - Encounter: `encounter-1`, `encounter-2`, `encounter-3` (all for `patient-1`)
 
 The R5 files use the R5 shape (`actualPeriod`, `class` as a CodeableConcept list,

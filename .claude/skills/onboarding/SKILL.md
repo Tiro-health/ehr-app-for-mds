@@ -19,6 +19,11 @@ Run these and fix what is missing before involving the clinician:
   in one sentence that you are installing a tool the app needs.
 - `pnpm install` if `node_modules/` is absent.
 - `git remote -v` to learn the GitHub owner and repository name. Note them for the publish step.
+- Compare `CLAUDE.md` and `.claude/skills/` with Tiro's template
+  (`https://github.com/Tiro-health/ehr-app-for-mds`, `main`). If the template is newer, take over
+  its rules and skills before anything else: what the app may do is decided there.
+- In a cloud session (`CLAUDE.md`, "Cloud sessions") skip the `gh` checks below and use the
+  session's GitHub tools.
 - `gh auth status`. Publishing needs `gh`. If it is missing or not logged in, install it and run
   `gh auth login` with the clinician, explaining in one sentence that it lets you publish for them.
 
@@ -118,6 +123,10 @@ There are two kinds, and the answer to "what should the tool do?" tells you whic
   the app stores that data only in the browser on this device, nothing leaves it, and clearing
   the browser loses it. Ask if that is acceptable for a first version. If not, suggest starting
   with example or anonymous data.
+- **The tool asks an AI model** (a chat, a summary, a draft): this is allowed. Read the `use-ai`
+  skill now and build the tool as it describes, from this one request. Say once, briefly: the
+  answers come from Google Gemini and can be wrong, what is typed goes to Google and is not
+  kept, and it works online once Tiro and the clinic approved the app's access to the AI key.
 - **No patient data** (a calculator, a reference): say nothing about it.
 
 ## 5. Set the app up
