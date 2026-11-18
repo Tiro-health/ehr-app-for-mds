@@ -44,7 +44,8 @@ clinical tools with Claude Code. The person you are working with is a medical do
 
 Pages are rendered on a small Node server (built by Nitro into `.output/`) and then take over in the browser. The
 server keeps no data: it renders pages and, when the app was opened from the EHR, passes the
-patient's data from the EHR to the page. Everything the app stores stays in the browser.
+patient's data from the EHR to the page, writes to the EHR and, if the app uses one, talks to an AI
+service. Everything the app stores stays in the browser or in the EHR.
 
 ## Patient data from the EHR
 
@@ -65,12 +66,18 @@ So patient data from the EHR passes through this app's server code. These rules 
    messages or web addresses.
 2. **Never keep patient data on the server between requests.** No variable outside a function,
    no cache, no file, no database. Fetch it, return it, forget it.
-3. **Never send patient data to another host.** The server talks to the EHR through the `fhir`
-   helper and to nothing else; no other service (AI, analytics, error tracking, e-mail, webhook)
-   receives patient data, from the server or from the browser.
-4. **Never write code that handles a token, a key or an OAuth redirect.** No sign-in code, no
-   `Authorization` header, no reading or setting of cookies. No SMART or EHR environment
-   variables exist; never add one.
+3. **Patient data goes only to the EHR and to an AI service.** Writing patient data to the record
+   is allowed, through the `fhir` helper on the FHIR facade (create, update,
+   `createDocumentReference`). The app's server may send patient data to an AI service. No other
+   service (analytics, error tracking, e-mail, webhook) receives patient data, from the server or
+   from the browser. The browser never calls the AI service itself; it goes through a server
+   function.
+4. **Keys stay on the server.** A key for another service, such as the AI service, is read from a
+   server environment variable in server-only code (a server function or a `*.server.ts` file).
+   It is never sent to the browser, logged, put in an error message or committed to the
+   repository. The EHR connection is not yours to handle: no sign-in or OAuth code, no SMART or
+   EHR tokens, no reading or setting of cookies. No SMART or EHR environment variables exist;
+   never add one.
 5. **`/launch`, `/callback` and `/.well-known/jwks.json` are reserved** for the platform. Never
    define a page or file there. `pnpm check` fails if one appears.
 6. **Never put real patient data in the repository.** Test data is invented and lives in
@@ -151,8 +158,8 @@ Docker must be installed (Docker Desktop on a laptop). Never change `compose.yam
   observations, patient registries). The SMART spec forbids that.
 - **Browser-only code**: pages also render on the server, where `window`, `localStorage` and
   IndexedDB do not exist. Touch them only in `useEffect` or event handlers, never while rendering.
-- **Server functions**: only for EHR data, following "Patient data from the EHR". They never
-  store anything. Data the clinician types into the app goes to the server only to be saved in
+- **Server functions**: for EHR data and for calls to an AI service, following "Patient data from
+  the EHR". They never store anything. Data the clinician types into the app goes to the server only to be saved in
   the EHR (a create or update), and is never kept there.
 - **State**: React state in the page. EHR data comes from the hooks in `@/hooks/ehr` (TanStack
   Query). No other global state library unless a skill introduces one.
