@@ -87,8 +87,8 @@ const lastThree = [...resources]
   .slice(0, 3)
 ```
 
-- `launched` is false when the app was opened directly: decide with the clinician what the page
-  shows then, or send the visitor to `<Navigate to="/not-launched" search={{ reason: 'not-from-ehr' }} />`.
+- `launched` is false when the app was opened directly or the session ended. See "Pages with and
+  without the EHR" for what the page does then.
 - Preload in the route so the data is there at first paint:
   `loader: ({ context }) => context.queryClient.prefetchQuery(searchQuery('Encounter'))`, with the
   same type, parameters and options as the hook.
@@ -107,6 +107,47 @@ const lastThree = [...resources]
 Write a server function of your own (`src/lib/<topic>.functions.ts`, `createServerFn`,
 `fromEhr()`, `fhir`) only when the server must do the work: filing a document, or trimming a
 large or sensitive resource of which the page shows one field.
+
+## Pages with and without the EHR
+
+The sidecar holds a **session** for a clinician who started the app from the EHR. A visitor has
+none when they opened the app's address directly, or when the session ended (15 minutes idle, or 8
+hours). The app cannot tell these apart, and cannot start a session: only the EHR can launch the
+app. Without a session every EHR call answers `{ launched: false }` and gives no patient data, on
+any page.
+
+Each page is at one of four levels. Ask the clinician which one, in their words ("Should this page
+work when you open the app from a bookmark, without a patient?"):
+
+| Level   | The page needs                        | Route loader                                                          |
+| ------- | ------------------------------------- | --------------------------------------------------------------------- |
+| Open    | nothing; EHR data only when present   | no `requireEhr`; the page reads `launched` from the hooks             |
+| Session | a clinician who launched from the EHR | `await requireEhr(queryClient)`                                       |
+| Patient | a patient open at launch              | `await requireEhr(queryClient, { patient: true })`                    |
+| Data    | specific permissions                  | `await requireEhr(queryClient, { scopes: ['patient/Encounter.rs'] })` |
+
+```tsx
+export const Route = createFileRoute('/summary')({
+  loader: async ({ context: { queryClient } }) => {
+    await requireEhr(queryClient, { scopes: ['patient/Encounter.rs'] })
+    await queryClient.prefetchQuery(searchQuery('Encounter'))
+  },
+  component: SummaryPage,
+})
+```
+
+- A visitor whose needs are not met goes to `/not-launched` with the reason (`not-from-ehr`,
+  `no-patient` or `scope-missing`), which says what to do. On a first visit this is a server
+  redirect: nothing of the page renders.
+- Each level includes the ones above it. A `patient/` scope implies `patient: true`. Every scope in
+  `scopes` must also be in `smart.json`.
+- Put in `scopes` only what the page cannot work without. Data the page can do without stays an
+  in-page fallback that says what is missing (see "Permissions" below).
+- The check runs when the visitor arrives on the page, on a session answer at most 30 seconds old.
+  If the session ends while the page is open, the hooks return `launched: false` until the next
+  navigation: a page at any level still handles that, without patient data.
+- Open pages are the default. Tools that a clinician uses without a patient (a calculator, help,
+  settings) stay open.
 
 ## Permissions: `smart.json`
 
