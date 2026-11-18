@@ -80,11 +80,17 @@ test('a refused scope names what is missing', async ({ page, request }) => {
   await expect(page.getByText(/patient\/Encounter\.rs/)).toBeVisible()
 })
 
-test('an ended session is as opened directly', async ({ page, request }) => {
+test('an ended session sends the visitor to the explanation page', async ({
+  page,
+  request,
+}) => {
   await scenario(request, 'expired')
   await page.goto('/')
 
-  await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+  await expect(page).toHaveURL(/\/not-launched\?reason=not-from-ehr$/)
+  await expect(
+    page.getByRole('heading', { name: 'Open this app from the EHR' }),
+  ).toBeVisible()
   await expect(page.getByText('Opened from the EHR')).toHaveCount(0)
 })
 

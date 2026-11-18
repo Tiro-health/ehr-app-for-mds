@@ -4,6 +4,8 @@ import {
   NotLaunchedError,
   ScopeRefusedError,
 } from '@/lib/fhir/errors'
+import { SCOPE, grants } from '@/lib/fhir/scopes'
+import type { Interaction } from '@/lib/fhir/scopes'
 
 // The EHR connection of a launched app.
 //
@@ -61,8 +63,6 @@ export interface RequestOptions {
   version?: string
 }
 
-type Interaction = 'r' | 's' | 'c' | 'u' | 'd'
-
 function sidecarUrl(): string {
   const url = new URL(process.env.EHR_SIDECAR_URL ?? DEFAULT_SIDECAR)
   if (url.protocol !== 'http:' || !LOOPBACK_HOSTS.has(url.hostname)) {
@@ -113,24 +113,6 @@ function fhirPath(path: string): { path: string; segments: string[] } {
   }
   const base = segments.length ? `/fhir/${segments.join('/')}` : '/fhir'
   return { path: query ? `${base}?${query}` : base, segments }
-}
-
-const SCOPE = /^(patient|user|system)\/([A-Za-z*]+)\.([a-z*]+)$/
-
-function grants(scope: string, type: string, interaction: Interaction) {
-  const match = SCOPE.exec(scope)
-  if (!match) return false
-  const [, , resource, rights] = match
-  if (resource !== '*' && resource !== type) return false
-  const letters =
-    rights === '*'
-      ? 'cruds'
-      : rights === 'read'
-        ? 'rs'
-        : rights === 'write'
-          ? 'cud'
-          : rights
-  return letters.includes(interaction)
 }
 
 /** The scope to name when `type`/`interaction` was refused: the app's own wording if it has one. */

@@ -54,6 +54,10 @@ app contains no launch, sign-in or session code. Server functions and route load
 write FHIR through `fhir` from `@/lib/fhir.server`; pages use the hooks in `@/hooks/ehr`. The
 `connect-to-ehr` skill has the details and a worked example.
 
+Every page is open to anyone unless its route loader calls `requireEhr` from `@/hooks/ehr`, which
+sends a visitor whose needs are not met to `/not-launched`. Whether a page works without the EHR is
+the clinician's decision: ask. The skill's "Pages with and without the EHR" says how.
+
 So patient data from the EHR passes through this app's server code. These rules are absolute:
 
 1. **Never log patient data.** Not on the server, not in the browser: no `console.*` of a

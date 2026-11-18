@@ -6,6 +6,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import type { QueryClient, UseQueryResult } from '@tanstack/react-query'
+import { redirect } from '@tanstack/react-router'
 import type { FhirResource } from 'fhir/r4'
 import {
   ehrContext,
@@ -16,7 +17,9 @@ import {
   ehrUpdate,
 } from '@/lib/ehr.functions'
 import type { FromEhr } from '@/lib/fhir/from-ehr'
+import { covers } from '@/lib/fhir/scopes'
 import type {
+  LaunchContext,
   ResourceOf,
   ResourceType,
   SearchParams,
@@ -77,6 +80,47 @@ export async function preloadPatient(queryClient: QueryClient) {
   if (answer?.launched && answer.data.patient) {
     await queryClient.prefetchQuery(readQuery('Patient', answer.data.patient))
   }
+}
+
+/** What a page cannot work without. Nothing: the page is open to anyone. */
+export interface EhrNeeds {
+  /** A patient was open in the EHR when the app was launched. */
+  patient?: boolean
+  /** Scopes the clinic must have granted, such as `patient/Encounter.rs`. A `patient/` scope implies `patient`. */
+  scopes?: string[]
+}
+
+/** Why `needs` is not met, as a reason code of the /not-launched page, or null when it is. */
+export function unmetNeed(
+  answer: FromEhr<LaunchContext>,
+  needs: EhrNeeds = {},
+): string | null {
+  if (!answer.launched) return 'not-from-ehr'
+  const scopes = needs.scopes ?? []
+  const patient =
+    needs.patient || scopes.some((scope) => scope.startsWith('patient/'))
+  if (patient && !answer.data.patient) return 'no-patient'
+  if (!scopes.every((scope) => covers(answer.data.scopes, scope))) {
+    return 'scope-missing'
+  }
+  return null
+}
+
+/**
+ * Use in the route loader of a page that cannot work without the EHR. Without a session, or
+ * when `needs` is not met, the visitor is sent to /not-launched, which explains what to do.
+ * The app cannot start a sign-in itself: only the EHR launches it.
+ *
+ *   loader: ({ context }) => requireEhr(context.queryClient)                       // a session
+ *   loader: ({ context }) => requireEhr(context.queryClient, { patient: true })    // and a patient
+ *   loader: ({ context }) => requireEhr(context.queryClient, { scopes: ['patient/Encounter.rs'] })
+ */
+export async function requireEhr(queryClient: QueryClient, needs?: EhrNeeds) {
+  const reason = unmetNeed(
+    await queryClient.ensureQueryData(contextQuery),
+    needs,
+  )
+  if (reason) throw redirect({ to: '/not-launched', search: { reason } })
 }
 
 function unwrap<T>(query: UseQueryResult<FromEhr<T>>) {
