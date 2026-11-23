@@ -6,6 +6,8 @@ export default defineConfig({
   testDir: 'e2e',
   testMatch: '*.e2e.ts',
   reporter: 'list',
+  // The tests switch the debug scenario of the one local EHR: one file at a time.
+  workers: 1,
   use: { baseURL: 'http://127.0.0.1:3100' },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {

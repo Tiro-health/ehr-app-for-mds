@@ -7,6 +7,8 @@ restart the container to reset it.
 - Patient: `patient-1`, `patient-2`, `patient-3`
 - Practitioner: `practitioner-1`
 - Encounter: `encounter-1`, `encounter-2`, `encounter-3` (all for `patient-1`)
+- `eid/`: invented eID cards for the eID check (see `eid/README.md`). Not loaded into fhir-candle.
+  `patient-1` carries an invented national number (SSIN identifier) that one of them matches.
 
 The R5 files use the R5 shape (`actualPeriod`, `class` as a CodeableConcept list,
 `participant.actor`, status `completed`).

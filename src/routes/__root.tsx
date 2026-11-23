@@ -74,6 +74,12 @@ function RootLayout() {
             >
               Home
             </Link>
+            <Link
+              to="/eid"
+              className="text-muted-foreground hover:text-foreground [&.active]:text-foreground"
+            >
+              Check eID
+            </Link>
           </div>
         </nav>
       </header>

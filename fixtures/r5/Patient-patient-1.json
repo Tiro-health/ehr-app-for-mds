@@ -5,6 +5,10 @@
     {
       "system": "urn:example:synthetic",
       "value": "SYN-0001"
+    },
+    {
+      "system": "https://www.ehealth.fgov.be/standards/fhir/core/NamingSystem/ssin",
+      "value": "58041200212"
     }
   ],
   "name": [
